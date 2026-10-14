@@ -1,6 +1,7 @@
 {
   "name": "ajaynxt-social-hub",
   "private": true,
+  "type": "module",
   "version": "0.2.0",
   "description": "AJAYNXT Social Hub — Cloudflare Workers, D1, Firebase Auth",
   "scripts": {
