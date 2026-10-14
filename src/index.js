@@ -200,8 +200,9 @@ async function callMcpTool(db,token,name,args){
   fail(404,'MCP_TOOL_NOT_FOUND','Read-only MCP tool not found.');
 }
 async function mcpEndpoint(request,env){
+  
   if(request.method!=='POST')return methodDenied(['POST']);
-  checkOrigin(request,env);
+  checkMcpOrigin(request,env);
   const token=await requireMcpToken(request,env),b=await bodyJson(request,65536);
   if(b.jsonrpc!=='2.0'||typeof b.method!=='string')return reply({jsonrpc:'2.0',id:b.id??null,error:{code:-32600,message:'Invalid JSON-RPC request.'}},400);
   const id=b.id===undefined?null:b.id,version=b.params&&typeof b.params.protocolVersion==='string'?b.params.protocolVersion:'2025-11-25';
@@ -224,6 +225,15 @@ async function purgeOldRows(db,table,dateColumn){
   }
   return total;
 }
+function checkMcpOrigin(request,env){
+  const origin=request.headers.get('Origin');if(!origin)return;
+  const allowed=new Set();
+  if(env.APP_ORIGIN){try{allowed.add(new URL(env.APP_ORIGIN).origin);}catch{}}
+  if(env.MCP_ALLOWED_ORIGINS){for(const value of env.MCP_ALLOWED_ORIGINS.split(',')){try{allowed.add(new URL(value.trim()).origin);}catch{}}}
+  let actual;try{actual=new URL(origin).origin;}catch{fail(403,'ORIGIN_NOT_ALLOWED','MCP origin is invalid.');}
+  if(!allowed.has(actual))fail(403,'ORIGIN_NOT_ALLOWED','MCP client origin is not allowlisted.');
+}
+
 async function runRetention(env){
   const db=env.DB,runId=crypto.randomUUID();
   await db.prepare("INSERT INTO retention_runs(id,started_at,status) VALUES(?,CURRENT_TIMESTAMP,'running')").bind(runId).run();
@@ -238,7 +248,7 @@ async function runRetention(env){
     stats.drafts=await purgeOldRows(db,'content_drafts','created_at');
     stats.auditEvents=await purgeOldRows(db,'audit_events','created_at');
     let expired=0;
-    for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){const r=await db.prepare("DELETE FROM mcp_tokens WHERE id IN (SELECT id FROM mcp_tokens WHERE expires_at<datetime('now','-30 days') OR revoked_at<datetime('now','-30 days') LIMIT 250)").run(),n=Number(r.meta&&r.meta.changes||0);expired+=n;if(n<250)break;}
+    for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){const r=await db.prepare("DELETE FROM mcp_tokens WHERE id IN (SELECT id FROM mcp_tokens t WHERE (t.expires_at<datetime('now','-30 days') OR t.revoked_at<datetime('now','-30 days')) AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.family_id=t.id) LIMIT 250)").run(),n=Number(r.meta&&r.meta.changes||0);expired+=n;if(n<250)break;}
     stats.expiredMcpTokens=expired;
     await db.prepare("DELETE FROM oauth_sessions WHERE expires_at<datetime('now','-1 day')").run();
     await db.prepare("DELETE FROM oauth_requests WHERE expires_at<datetime('now','-1 day')").run();
@@ -723,7 +733,6 @@ async function router(request,env){
       return reply({project:{id:projectId,name:access.project.name},organizationId:orgId,period:range,totals:await readFinancial(db,projectId,range.start,range.end),disclaimers:['This is an entered-record reconciliation, not audited results.','Revenue minus recorded costs is not net profit.','Manual/imported records are unverified by default.','Currencies are grouped separately.']});
     }
   }
-  if(path==='/mcp')return mcpEndpoint(request,env);
   if(path==='/api/admin/mcp-tokens'){
     const user=await requireUser(request,env);requireOwner(user,env);const orgId=url.searchParams.get('organizationId');if(!orgId)fail(400,'ORGANIZATION_ID_REQUIRED','organizationId is required.');await orgAccess(db,user.uid,orgId,ADMIN);
     if(method==='GET'){const r=await db.prepare('SELECT id,label,project_id,expires_at,last_used_at,status,created_at,revoked_at FROM mcp_tokens WHERE organization_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all();return reply({endpoint:new URL('/mcp',request.url).toString(),readOnly:true,defaultExpiryDays:90,tokens:r.results||[]});}
