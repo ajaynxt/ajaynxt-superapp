@@ -2,51 +2,68 @@
 
 ## Current truthful status
 
-The repository contains a provider catalogue and data model placeholders. **No third-party social network, advertising account, Google Business Profile, Swiggy, Zomato or other marketplace account is connected.** The Cloudflare Worker has not been deployed to the user's account, and no Firebase project credentials or real D1 ID were configured in this session.
+No third-party account is connected in the deployed product because the Cloudflare Worker, Firebase web configuration and real D1 database are not yet deployed by the owner. The repo contains an integration catalogue, official account/developer links, project-scoped status endpoints and read-only report plumbing. A status row or account-portal link does not prove that data is being read.
 
-## AI/MCP data sharing
+## Official account portals currently linked in the app
 
-The repository now includes a remote read-only MCP endpoint with OAuth authorization code + PKCE, dynamic client registration, workspace/project consent and eight read-only tools. The owner console can create/revoke scoped static bearer tokens and shows MCP/OAuth discovery URLs. The connection has not been tested against a deployed worker yet, because the Cloudflare database, origin and Firebase secrets are still user-setup steps. MCP reads data already stored in AJAYNXT; it does not log the app into Meta/Swiggy/Zomato or replace provider OAuth.
+- Instagram: https://www.instagram.com/accounts/login/ — API docs: https://developers.facebook.com/docs/instagram-platform/
+- Facebook Pages / Meta Business: https://www.facebook.com/login/ and https://business.facebook.com/ — Meta developer docs: https://developers.facebook.com/
+- Threads: https://www.threads.com/ — API docs: https://developers.facebook.com/docs/threads/
+- YouTube: https://accounts.google.com/ — API docs: https://developers.google.com/youtube/v3
+- LinkedIn: https://www.linkedin.com/login — community management docs: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/community-management-overview
+- Pinterest: https://www.pinterest.com/login/ — developer docs: https://developers.pinterest.com/
+- TikTok: https://www.tiktok.com/login — developer docs: https://developers.tiktok.com/docs/en/
+- X: https://x.com/i/flow/login — developer docs: https://developer.x.com/en/docs
+- Snapchat: https://accounts.snapchat.com/accounts/v2/login — developer docs: https://developers.snap.com/
+- Reddit: https://www.reddit.com/login/ — API docs: https://www.reddit.com/dev/api/
+- Bluesky: https://bsky.app/ — API docs: https://docs.bsky.app/
+- Mastodon: https://joinmastodon.org/ — API docs: https://docs.joinmastodon.org/api/
+- Meta Ads: https://business.facebook.com/adsmanager/ — Marketing API: https://developers.facebook.com/docs/marketing-api/insights/
+- Google Ads: https://ads.google.com/ — API docs: https://developers.google.com/google-ads/api/docs/start
+- TikTok Ads: https://ads.tiktok.com/ — API docs: https://business-api.tiktok.com/portal/docs
+- LinkedIn Ads: https://www.linkedin.com/campaignmanager/ — API overview: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads
+- Google Business Profile: https://business.google.com/ — performance API: https://developers.google.com/my-business/reference/performance/rest
+- Google Analytics: https://analytics.google.com/ — Data API: https://developers.google.com/analytics/devguides/reporting/data/v1
+- Swiggy Restaurant Partner: https://partner.swiggy.com/
+- Zomato Partner: https://www.zomato.com/partner-with-us — published developer docs: https://www.zomato.com/developer/integration/docs/overview/
+- WhatsApp Business / Meta Business: https://business.facebook.com/ — WhatsApp API docs: https://developers.facebook.com/docs/whatsapp/
 
-A daily retention worker job is implemented to remove reportable observations after 365 days and expired auth records on their own shorter schedule. It only runs after a real Cloudflare deployment and database migrations.
+Account login is always on the provider's site. Logging into the provider does not connect that account to AJAYNXT. Each live connector still requires its own OAuth flow, approved scopes, provider API keys/app review if required, and a successful API test.
 
-## Integration strategy
+## Swiggy and Zomato reporting
 
-Start with one provider after the platform owner has configured/deployed the backend. For each provider, verify the official API docs, account-type eligibility, app review requirements, available scopes, current quotas, data retention terms and publishing constraints. Never scrape or bypass an API permission requirement.
+- Swiggy's official Partner portal is linked for restaurant owners. A public, generally available third-party restaurant analytics API has not been verified for every restaurant account here. Until access is confirmed for Diamond Restaurant, import genuine Partner report exports (CSV/XLS/PDF where supported) and label them as imported/unverified.
+- Zomato's published developer site describes a POS integration program (menu, outlet and order workflows), not a blanket promise that every individual restaurant can connect its analytics to a third-party dashboard. The official onboarding documentation lists eligibility prerequisites—at least 50 restaurants onboarded or 10,000 monthly orders—and the final decision is made by Zomato. For a single restaurant, do not assume this POS partner access is available. Use the partner portal and source report import unless Zomato directly confirms eligible API access.
+- Official Zomato refs: https://www.zomato.com/developer/integration/docs/overview/ and https://www.zomato.com/developer/integration/docs/getting-started/prerequisites/
 
-Possible catalogue, subject to official access:
-- Social/content: Instagram, Facebook Pages, Threads, YouTube, LinkedIn, Pinterest, TikTok, X, Snapchat, Reddit, Bluesky and Mastodon.
-- Web/business: Google Business Profile, GA4.
-- Ads: Meta Ads, Google Ads.
-- Communication: WhatsApp Business.
-- Marketplace: Swiggy, Zomato.
-- Import sources: POS exports, invoices, spreadsheets and CSV reports.
+## Data and connection states
 
-## State meanings
+- Not connected: no verified provider authorization exists.
+- Import required: use a real source export until an official supported API is actually available and authorized.
+- Connected: only show after the authorized account has been queried successfully; preserve account identity/scopes and last successful sync time.
+- Error/revoked: expose the error state, stop sync, and revoke/delete tokens appropriately.
 
-- Not connected: no OAuth authorization is present.
-- Authorization pending: a real login/consent flow started but has not been verified.
-- Connected: an authorized account was successfully queried through the expected provider API; store account identity/scopes/last success.
-- Import required: there is no official API connection available for this account, so the user must import a source report.
-- Error: authorization revoked, provider failure, missing permission or sync problem was detected.
-- Revoked: account link has been disconnected; tokens must be revoked/deleted as appropriate.
+## Connector verification gate
 
-## Verification gate per connector
+1. Review current official API docs, account type, approval requirements, scopes and quotas.
+2. Implement provider-specific OAuth state/PKCE, callback allowlists and server-side token storage.
+3. Request minimum scopes only, and provide an explicit disconnect/revoke action.
+4. Read a real authorized test resource and reconcile it against the provider UI/export.
+5. Document units, time zones, attribution windows, date coverage, source and freshness.
+6. Implement refresh, retries/backoff, rate-limit handling, sync logs and error visibility.
+7. Mark Connected only after these checks succeed.
 
-1. Identify the official API and eligible account type.
-2. Implement OAuth state and PKCE where appropriate; validate callbacks and required scopes.
-3. Keep client secrets and tokens server-side, protect/encrypt tokens and record least-required scopes.
-4. Read an actual authorized test resource.
-5. Compare returned fields with the source UI and document units, attribution windows, time zone and freshness.
-6. Implement token refresh, disconnect/revoke, rate limits, backoff and failure alerts.
-7. Show the connection as active only after successful verification and display the last successful sync time.
+## AI / MCP read-only access
+
+The repository includes /mcp with OAuth authorization code + PKCE, Google sign-in, explicit workspace/project consent, a read-only scope and refresh tokens. It also supports a separate custom read-only bearer token for clients that need that option. The token screen can revoke static tokens and OAuth clients; all tools offered are read-only.
+
+This does not mean ChatGPT, Gemini, Grok or another AI client is already configured. After deploying all D1 migrations, configure the server endpoint in each target client and run a real OAuth/tool-scan test. The OAuth registration endpoint is rate-limited by MCP_RATE_LIMIT_SALT. Hosted clients may vary in supported MCP/OAuth features. Never paste one-time tokens into a public prompt, issue or screenshot.
 
 ## Reporting rules
 
-- Preserve the original source and import timestamp.
-- Imported values remain unverified until reconciled with the actual source report.
-- Never treat missing dates as zero.
-- Ads ROAS requires a defensible conversion value/attribution source; spend and clicks alone do not establish revenue or profit.
-- Swiggy/Zomato sales are report imports until an authorized official API connection is proven.
-- Revenue and profit are different. Revenue minus entered expenses is not net profit.
-- A provider's integration status never guarantees the provider's uptime or that every metric/scope is available.
+- Keep original source labels and import timestamps; imported data stays unverified until reconciled.
+- Missing dates are never treated as zero.
+- Growth comparisons require complete consecutive 14-day windows; forecasts require complete consecutive 28-day history.
+- Forecasts are estimates, not promises. Ads ROAS needs a defensible conversion-value/attribution source.
+- Revenue is not profit. Revenue minus recorded costs is not net profit when costs, tax, refunds, commissions, ingredients, labour or overheads are missing.
+- One-year retention removes old dated metric/sales/cost rows and old generated reports/drafts/audit records. Access/workspace configuration is retained unless manually removed so the owner can keep logging in. Details are in docs/CLOUDFLARE-SETUP.md.
