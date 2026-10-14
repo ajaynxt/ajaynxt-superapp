@@ -42,7 +42,7 @@ The older Vercel preview is only the static prototype; it does not run this Clou
 4. Deploy Worker assets, sign in at the site, then open /admin.html to create/revoke Admin IDs and manage members.
 5. Use Integrations for official login/API links; connect each provider only when its own authorization/API test succeeds.
 6. Use the Admin Console AI/MCP panel to read the MCP endpoint/discovery URLs and manage read-only access.
-7. Use Admin Console → 365-day data retention to review cleanup history or run owner-authorized cleanup manually.
+7. Use the main app’s AI Read Plugin page to manage MCP tokens/OAuth clients and the Data Retention page to review cleanup history or run owner-authorized cleanup manually. Use /admin.html to create/revoke Admin IDs and manage workspace members.
 
 ## Tests
 
