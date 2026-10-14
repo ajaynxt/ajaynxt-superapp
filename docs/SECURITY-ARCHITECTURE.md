@@ -1,89 +1,53 @@
 # AJAYNXT Social Hub — Security Architecture
 
-## Status
+## Deployment status
 
-This is a design specification, not proof of production security. The current deployed MVP is a static browser-side prototype with local storage. It has no authenticated backend, shared database, encrypted OAuth tokens, live social integrations or hosted MCP endpoint. Do not store sensitive client data or secrets in the preview.
+This document describes committed Cloudflare Worker + D1 code and required controls. It is not proof of a production security audit. The code has not yet been deployed into the owner's Cloudflare account or configured with the real Firebase project, D1 database ID or Super Admin UID.
 
-## Trust boundaries
+## Security boundaries
 
-- Web/PWA/native client: UI and safe inputs only; no provider secrets, refresh tokens, service-role keys or AI provider API keys.
-- Application backend: authenticated APIs, authorization, validation, OAuth callbacks, connector orchestration and report generation.
-- Database: organizations, memberships, projects, connections, metric definitions, observations, posts, reports and audit events, all scoped to the authorized tenant.
-- Secret store: provider credentials and encrypted OAuth tokens; use a managed secret store and KMS-backed encryption where available.
-- Background workers: scheduled sync, reports and publishing jobs with retries, quota limits and idempotency.
-- MCP server: authenticated, project-scoped, read-only reporting tools first.
-
-## Multi-tenant data model
-
-Recommended entities: users, organizations, organization memberships, projects, project memberships, integration connections, metric definitions, metric observations, sync runs/errors, media assets, content posts, publishing jobs, approval events, reports, report exports and audit events.
-
-Resolve project/org access from authenticated memberships, not a browser-provided ID or name. Store project, provider/account, date, metric definition/unit, value, source and sync/import timestamps for each observation.
+- Identity: Firebase Authentication Google sign-in. Worker verifies Firebase ID tokens server-side against issuer, audience and Google's Secure Token signing keys.
+- API/data: Cloudflare Worker routes use D1 binding on the server. The browser never connects directly to D1.
+- Tenant isolation: users gain access to an organization through an active org_members row. Project routes validate that the project belongs to the requested organization before reading or writing.
+- Super Admin: platform privileges are restricted to an exact AJAYNXT_SUPER_ADMIN_UID Worker secret. A browser flag, email address, localStorage value or Admin ID string alone cannot confer Super Admin privileges.
+- Admin IDs: only the configured Super Admin UID can create/revoke platform Admin IDs. Revoking Admin access also revokes workspace memberships with role admin. All such events are written to the audit log.
+- Secrets: Worker secret values remain server-side. The Firebase Web config exposed from /api/config is public client configuration, not an admin credential.
+- Browser: service worker only handles safe static shell assets; it bypasses API paths and the Admin Console. Authentication state or report responses are not cached by the service worker.
+- Imports: request size, record count, dates, metric names and values are validated. Duplicate observations are rejected rather than overwritten. Imported records are marked unverified by default.
+- Finance: source records are not assumed to be verified. Report labels explicitly distinguish revenue minus entered costs from net profit.
+- Errors: API responses do not expose stacks or database error details.
 
 ## Roles
 
-- Owner: workspace, member access, configuration and owner-only destructive operations.
-- Administrator: manage authorized projects, connections, reports and content setup.
-- Operator: media, drafts and approved publishing workflow.
-- Analyst: analytics and report generation.
-- Client viewer: read only assigned projects and approved reports.
+- owner: workspace owner. Only the configured platform Super Admin UID has platform-wide Super Admin powers.
+- admin: workspace project management. Must already have a platform Admin ID. Cannot create/revoke other platform Admin IDs.
+- operator: content/data operations.
+- analyst: read/report access.
+- client_viewer: read-only access.
 
-Verify identity and project membership in every backend route and job. Hiding a button is not authorization. Use PostgreSQL row-level security as defense in depth, not as a replacement for server-side checks.
+## Data model
 
-## Authentication and sessions
+D1 migration 0001 includes users, organizations, org_members, projects, metrics, platform_admins, audit_events, content_drafts, scheduled_posts, integration_connections, sales_observations, business_costs and reports. Project data carries organization and project scope; tenant checks are implemented server-side.
 
-Use a maintained authentication provider/library; do not invent cryptography. Support recovery, session revocation and MFA for privileged roles. Use secure HttpOnly SameSite cookies for browser sessions where appropriate and OS secure storage for native app credentials. Validate sensitive reads and all writes server-side. Protect OAuth callbacks with state validation, PKCE where supported and strict redirect allowlists. Rate-limit login, recovery and sensitive routes.
+## Owner onboarding
 
-## Secrets and OAuth
+1. Owner deploys Worker and D1 under their own Cloudflare account.
+2. Owner signs in via Google once, so their Firebase UID is recorded.
+3. Owner copies the exact Firebase UID from Authentication > Users and stores it in the AJAYNXT_SUPER_ADMIN_UID Worker secret.
+4. Workspace initialization and platform admin routes remain unavailable until the matching UID is configured.
+5. Every privileged request rechecks that server-side allowlist.
+6. A platform Admin ID can be issued only to a user who has already authenticated with Google once.
 
-- Never put secrets in frontend code, public environment variables, source control, browser storage, logs or exports.
-- Store provider credentials in server-side secrets; encrypt stored tokens using managed KMS/envelope encryption.
-- Request minimum OAuth scopes; begin with read-only permissions.
-- Track expiry, refresh, revocation and reconnect-required state.
-- Redact tokens, authorization headers and webhook signatures from logs.
-- Disconnecting an account must revoke/delete credentials as applicable and create an audit event.
+## Release gates before storing sensitive client data
 
-## Connector, plugin, webhook and import safety
-
-- Treat external API responses, CSVs, webhooks, MCP results and plugin manifests as untrusted input.
-- Prefer reviewed declarative connector manifests and server-side adapters. Never execute arbitrary uploaded plugin code in the main app.
-- For custom remote endpoints, require HTTPS; restrict outbound hosts where possible; block loopback, private and link-local IPs; restrict redirects, timeouts and response sizes; defend against DNS rebinding and SSRF.
-- Validate schemas, MIME types, file size and dates server-side.
-- Verify webhook signatures/timestamps and reject replayed events.
-- Add per-user/project/provider limits, retries, concurrency caps and circuit breakers.
-- Keep publishing, deletion and advertising-budget changes disabled until separately reviewed and explicitly confirmed.
-
-## Database, storage and web security
-
-- Enable RLS on every exposed table and write operation-specific policies.
-- Base access on server-controlled memberships, not editable user metadata.
-- Never expose database service-role keys to the browser.
-- Keep media private; use short-lived project-scoped signed URLs and restrict upload types/sizes.
-- Add Content Security Policy, HSTS, secure headers, output escaping, CSRF protections where applicable, strict CORS and request validation.
-- Pin dependencies, commit lockfiles, scan dependencies/secrets, and separate staging from production.
-- PWA service worker must not cache private reports or authenticated API responses.
-- Maintain backup/restore, export, retention, deletion and incident-response procedures.
-
-## Audit and monitoring
-
-Log sign-ins, authorization failures, role changes, provider connect/disconnect, OAuth errors, imports/exports, publish requests, approval decisions, AI/MCP report access and administrative actions. Logs must not contain secrets and should be append-only to ordinary application roles. Alert on unusual exports, repeated auth failures, token refresh failures and quota exhaustion.
-
-## Mandatory tests before production
-
-- Cross-organization/project allow/deny tests for every important resource.
-- RLS tests for SELECT/INSERT/UPDATE/DELETE with authorized and unauthorized users.
-- OAuth state/redirect/PKCE, token-refresh and revocation tests.
-- CSV malformed-file, duplicate, invalid-date, rollback and large-file tests.
-- Webhook signature, replay and idempotency tests.
-- SSRF, XSS, CSRF, rate-limit and file-upload tests.
-- MCP isolation tests proving users cannot read other projects' reports, posts or credentials.
-- Publishing retry, duplicate, expired-token and provider-limit tests.
-- Backup restore, disconnect, offboarding and deletion tests.
-
-## Official references
-
-- Next.js authentication: https://nextjs.org/docs/app/guides/authentication
-- Supabase Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
-- Supabase product security: https://supabase.com/docs/guides/security/product-security
-- OWASP Application Security Verification Standard: https://owasp.org/www-project-application-security-verification-standard/
-
-A feature is not production-ready until implementation and relevant tests pass. A deployed page, UI label or imported CSV does not prove security or provider integration.
+- Run automated tests and verify the deployed Worker build and D1 migration.
+- Confirm missing/invalid ID tokens return 401 and wrong-org/project requests are denied.
+- Confirm an unapproved UID cannot create/revoke Admin IDs, and cannot add an Admin workspace role.
+- Revoke a test Admin and prove that all admin project membership is removed.
+- Test requests against another workspace's IDs; no result or write must leak across tenants.
+- Review CSRF/origin policy, rate limiting, abuse controls and provider OAuth state/PKCE when implementing social connections.
+- Add controlled invite/onboarding rather than relying solely on a user's first sign-in.
+- Review backups, restore tests, export/delete workflows and audit-event retention.
+- Review Cloudflare quota monitoring. Free-tier limits can stop requests once exhausted.
+- Review third-party scopes and token encryption before storing provider tokens. No provider OAuth token store has been implemented yet.
+- Do not claim integration, social publishing, ad ROAS or marketplace data unless the provider authorization and API response are real and tested.
