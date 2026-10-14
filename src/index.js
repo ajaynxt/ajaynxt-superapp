@@ -203,7 +203,16 @@ async function mcpEndpoint(request,env){
   
   if(request.method!=='POST')return methodDenied(['POST']);
   checkMcpOrigin(request,env);
-  const token=await requireMcpToken(request,env),b=await bodyJson(request,65536);
+  let token;
+  try{token=await requireMcpToken(request,env);}
+  catch(error){
+    if(error instanceof ApiError&&error.status===401){
+      const origin=new URL(request.url).origin;
+      return reply({error:error.code,message:error.message},401,{'WWW-Authenticate':'Bearer resource_metadata="'+origin+'/.well-known/oauth-protected-resource/mcp", scope="mcp:read"'});
+    }
+    throw error;
+  }
+  const b=await bodyJson(request,65536);
   if(b.jsonrpc!=='2.0'||typeof b.method!=='string')return reply({jsonrpc:'2.0',id:b.id??null,error:{code:-32600,message:'Invalid JSON-RPC request.'}},400);
   const id=b.id===undefined?null:b.id,version=b.params&&typeof b.params.protocolVersion==='string'?b.params.protocolVersion:'2025-11-25';
   if(b.method.startsWith('notifications/'))return new Response(null,{status:202,headers:{'Cache-Control':'no-store'}});
