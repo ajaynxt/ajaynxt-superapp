@@ -67,3 +67,9 @@ Before using real client data in a hosted production service, build and test:
 7. Secure read-only MCP tools, user authentication and project-level authorization.
 
 Never commit API keys, OAuth tokens, secrets, customer personal data, or provider credentials to this repository or browser storage.
+
+
+## Product and security specifications
+
+- [Full product scope, reporting, plugins and mobile app plan](docs/PRODUCT-SCOPE.md)
+- [Security architecture and launch gates](docs/SECURITY-ARCHITECTURE.md)
