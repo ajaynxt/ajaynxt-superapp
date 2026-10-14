@@ -87,6 +87,7 @@ npx wrangler secret put FIREBASE_PROJECT_ID
 npx wrangler secret put FIREBASE_API_KEY
 npx wrangler secret put FIREBASE_AUTH_DOMAIN
 npx wrangler secret put FIREBASE_APP_ID
+npx wrangler secret put MCP_RATE_LIMIT_SALT
 ~~~
 
 Optionally set FIREBASE_STORAGE_BUCKET and FIREBASE_MESSAGING_SENDER_ID if Firebase provides them. The current app does not use a Firebase service-account private key.
@@ -148,7 +149,7 @@ For Gemini, Grok and other clients, compatibility depends on the client supporti
 
 The OAuth/MCP endpoints do not connect Meta, Instagram, Threads, YouTube, Google Ads, Swiggy or Zomato. They only allow the authorized AI client to read information already stored in the selected AJAYNXT workspace. Source accounts still need their own official authentication/API access or report imports.
 
-Optional MCP_ALLOWED_ORIGINS is a comma-separated exact-origin allowlist for MCP requests that include an Origin header. Set only origins verified for the client. Do not use a wildcard. OAuth app/server secrets are stored as hashes or Worker-side values and are not returned by /api/config.
+After the first deploy gives you the real Worker hostname, configure APP_ORIGIN as the exact origin (scheme + host, no trailing slash) using `npx wrangler secret put APP_ORIGIN`. This activates a strict origin check for browser consent/session POSTs. Optional MCP_ALLOWED_ORIGINS is a comma-separated exact-origin allowlist for remote MCP clients that include an Origin header. Set only origins verified for the client. Do not use a wildcard. If ChatGPT sends an Origin header during your test, add the exact observed origin using `npx wrangler secret put MCP_ALLOWED_ORIGINS`. OAuth app/server secrets are stored as hashes or Worker-side values and are not returned by /api/config.
 
 Before remote MCP OAuth clients can register, set an independent rate-limit salt as an encrypted Worker secret (this stores only an IP-derived hash, not the raw IP): generate a random value locally with `openssl rand -hex 32`, then run `npx wrangler secret put MCP_RATE_LIMIT_SALT` and paste that random value at the prompt. The OAuth registration endpoint limits each network to 20 registrations per rolling hour and deletes old rate-limit records after seven days. Never put the salt in Git.
 
@@ -158,12 +159,12 @@ After the Worker and D1 migrations are actually deployed, a daily Worker Cron ru
 
 The cleanup rules are:
 - Metric, sales and cost observations whose observation date is more than 365 days old are purged in batches.
-- Reports, draft content, old scheduled-post records and audit events older than 365 days are purged using their creation/generation timestamps.
+- Reports, draft content last updated over 365 days ago, old terminal/expired scheduled-post records and audit events older than 365 days are purged using their generation, update, schedule or creation timestamps. Future scheduled posts are protected.
 - Expired/revoked MCP access tokens and expired OAuth requests/codes/session/refresh records are cleaned up according to their shorter expiry windows.
 - Old inactive integration-status records are removed; active integration/account configuration and the workspace/project/user login records are retained so the app does not lose its setup every year.
 - Each daily pass is deliberately batch-limited; if a table has a very large backlog, the remaining eligible records are removed in following daily passes. Check cleanup status before assuming the backlog is fully gone.
 
-Important: automatic deletion is not running until the real Cloudflare deployment, D1 database ID and all three migrations are configured successfully. Code and a cron declaration by themselves do not delete data. Back up/export records you must retain before triggering cleanup.
+Important: automatic deletion is not running until the real Cloudflare deployment, D1 database ID and all four migrations are configured successfully. Code and a cron declaration by themselves do not delete data. Back up/export records you must retain before triggering cleanup.
 
 ## 9. Current routes and data rules
 
