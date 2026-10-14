@@ -1,81 +1,67 @@
 # AJAYNXT Social Hub — Delivery Roadmap
 
-## Phase 0 — Foundation (current)
+## Phase 0 — Low-cost foundation (code committed, setup pending)
 
-- [x] Evidence-first dashboard UI
-- [x] Project switching, create and rename in browser-local state
-- [x] Integration catalogue showing unconnected state honestly
-- [x] CSV import with schema/date/value/duplicate checks
-- [x] Source report export (CSV/JSON) and print-to-PDF
-- [x] 14-day complete-window growth comparison
-- [x] 28-day linear-trend projection eligibility and seven-day point estimate
-- [x] Explicit MVP storage and integration limitations
+- [x] Existing responsive Social Hub interface
+- [x] Cloudflare Worker API code with Firebase ID-token verification
+- [x] D1 SQL schema and migration
+- [x] Project/workspace access checks
+- [x] Server-enforced Super Admin UID gate
+- [x] Admin ID create/revoke APIs and Admin Console
+- [x] Project metric import/read API with validation and duplicate protection
+- [x] Reports API: 14-day complete-window comparison and 28-day forecast eligibility
+- [x] Cross-device draft API (drafts only, no publishing)
+- [x] Sales/cost records and revenue-minus-entered-costs reconciliation (not net profit)
+- [x] PWA install shell that excludes API/admin data from caching
+- [x] CI workflow for build, syntax and unit tests
+- [ ] Create real Cloudflare D1 and replace placeholder DB ID
+- [ ] Configure Firebase Google sign-in and authorize the deployed hostname
+- [ ] Set the owner's exact Firebase UID as encrypted AJAYNXT_SUPER_ADMIN_UID
+- [ ] Deploy and test server-side authorization in the real environment
+- [ ] Backup/restore, quota alerts and access revocation test
 
-## Phase 1 — Secure application core
+## Phase 1 — Personal use on Diamond Restaurant
 
-- [ ] Freeze multi-tenant architecture and threat model (see docs/SECURITY-ARCHITECTURE.md)
-- [ ] Choose hosting and dedicated database; do not silently reuse an unrelated production database
-- [ ] Authentication, session revocation, organization/project membership and role policies
-- [ ] Database schema, row-level security, append-only audit logs, private storage and backup/restore
-- [ ] Project/tenant isolation tests for allowed and denied operations
-- [ ] Encrypted provider-token storage and secure server-side secrets
-- [ ] Secure import pipeline with validation report, idempotency and source provenance
-- [ ] CI secret scanning, dependency checks, integration tests and preview rollout
+- Import actual social metrics and POS/marketplace CSV exports.
+- Reconcile source reports and define data dictionary, currencies and metric units.
+- Add repeatable import workflows and freshness/error indicators.
+- Use daily/weekly reports to assess real outcomes before selling the service.
 
-## Phase 2 — First verified live connector
+## Phase 2 — First verified provider connector
 
-- [ ] Choose a connector based on available account/API access
-- [ ] Register the official developer application and configure OAuth
-- [ ] Implement read-only analytics before publishing/write scopes
-- [ ] Persist source, provider account ID, sync timestamp and API status
-- [ ] Test data against provider UI/export and record metric caveats
+- Pick one provider with an official, currently supported API and the right account type.
+- Register the app in the provider developer console.
+- Implement OAuth state/PKCE, scopes, callback validation, server-side token storage/encryption and revocation.
+- Read only the minimum data needed; verify against the provider's UI/API and record last-successful-sync.
+- Keep connector disconnected on any missing consent or failed test.
 
-Suggested first candidates should be selected based on access to the actual account and approval feasibility, not assumed support.
+## Phase 3 — Safe publishing and media
 
-## Phase 3 — Diamond Restaurant evidence baseline
+- Build private media upload/download and access checks before enabling upload UI.
+- Create platform-specific approval status and account connection settings.
+- Implement draft review, approvals, timezone-aware schedule, retry and publish-result reconciliation only for APIs that allow it.
+- Never imply a post was published until the provider returns a confirmed result.
 
-- [ ] Import actual Swiggy and Zomato Partner reports with column mapping reviewed
-- [ ] Record baseline period before making menu/photo changes
-- [ ] Fix P1 menu/photo/category issues in controlled batches
-- [ ] Keep an event log of changes and their effective dates
-- [ ] Compare equivalent time windows and flag confounding factors
-- [ ] Build a factual case study only after enough comparable data exists
+## Phase 4 — Agency operations
 
-## Phase 4 — Marketing connectors
+- Invitation workflow, Admin/client membership management and role audit.
+- Client-facing read-only reports and exports.
+- Separate business/client projects with least-privilege access.
+- Data retention/deletion, export and restore workflows.
+- Resource-usage monitoring, rate limiting and alerting.
 
-- [ ] Instagram/Facebook organic reporting
-- [ ] Meta Ads Insights
-- [ ] YouTube analytics
-- [ ] Additional platform connectors one-by-one after API/permission verification
+## Phase 5 — AI/MCP clients
 
-## Phase 5 — Publishing
+- Add an authenticated, scoped API for ChatGPT, Gemini, Claude and other permitted AI clients.
+- Require explicit user consent, project scopes, short-lived OAuth tokens and tool-level least privilege.
+- Avoid exposing D1, provider OAuth tokens or other tenants' data directly.
+- Run prompt-injection, privilege escalation, data-leak and audit tests.
 
-- [ ] Drafts, approval flow and media storage
-- [ ] Official provider publish endpoints
-- [ ] Status reconciliation, idempotency and retry rules
-- [ ] Publishing limits and account eligibility messaging
-- [ ] Human confirmation for risky actions
+## Phase 6 — Native apps
 
-## Phase 6 — AI & MCP
+- Reassess Android/iOS binaries once the PWA and backend are stable.
+- Reuse the same Worker API and identity policy rather than duplicating business rules.
 
-- [ ] Remote MCP server over HTTPS
-- [ ] Authenticated, read-only project-scoped tools first
-- [ ] Report retrieval, date comparison, data-quality explanation and top-post summaries
-- [ ] Explicit project authorization and tests against cross-project data leakage
-- [ ] Connect to each AI client only after its current remote MCP requirements are verified
+## Release rule
 
-## Phase 7 — Mobile app and forecast quality
-
-- [ ] Responsive installable PWA using the same secured backend; no sensitive API-response caching
-- [ ] Install and device-coverage tests across supported browsers
-- [ ] Native React Native/Expo app only if requirements justify it after PWA
-
-- [ ] Backtest forecast methods against historical holdout periods
-- [ ] Report model error and data coverage
-- [ ] Add intervals only when statistically justified
-- [ ] Account for seasonality and platform-specific reporting delays
-- [ ] Compare against simple baselines and suppress low-quality forecasts
-
-## Release gates
-
-Do not label a feature production-ready until its real external dependency is configured and tested. Never represent UI prototypes, imported records, unreviewed API support, forecasts or sample fixtures as live performance.
+Every external data source is clearly marked disconnected, imported or verified connected. No fake metrics, orders, sales, ROAS or success claims. Growth projections require complete history and remain estimates. Revenue is not profit without complete, verified costs.
