@@ -44,8 +44,8 @@ test('28 consecutive observations are required for a forecast', () => {
 
 test('the server-side Super Admin UID allowlist is strict', () => {
   assert.doesNotThrow(() => requireOwner({ uid: 'owner-uid' }, { AJAYNXT_SUPER_ADMIN_UID: 'owner-uid' }));
-  assert.throws(() => requireSuperAdmin({ uid: 'different-user' }, { AJAYNXT_SUPER_ADMIN_UID: 'owner-uid' }), { code: 'SUPER_ADMIN_REQUIRED' });
-  assert.throws(() => requireSuperAdmin({ uid: 'owner-uid' }, {}), { code: 'SUPER_ADMIN_NOT_CONFIGURED' });
+  assert.throws(() => requireOwner({ uid: 'different-user' }, { AJAYNXT_SUPER_ADMIN_UID: 'owner-uid' }), { code: 'SUPER_ADMIN_REQUIRED' });
+  assert.throws(() => requireOwner({ uid: 'owner-uid' }, {}), { code: 'SUPER_ADMIN_NOT_CONFIGURED' });
 });
 
 test('every MCP tool is explicitly read-only and no write/delete tools are published', () => {
