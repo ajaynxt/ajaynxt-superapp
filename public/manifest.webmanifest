@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "AJAYNXT Social Hub",
+  "short_name": "AJNXT Hub",
+  "description": "Private workspace for social publishing and evidence-based business reporting.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111318",
+  "theme_color": "#111318",
+  "icons": [
+    {
+      "src": "/icons/social-hub.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
