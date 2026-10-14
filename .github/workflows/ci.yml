@@ -20,5 +20,7 @@ jobs:
         run: npm run build
       - name: Check Worker syntax
         run: npm run check:syntax
+      - name: Validate D1 migration chain
+        run: python3 scripts/check-migrations.py
       - name: Run unit tests
         run: npm test
