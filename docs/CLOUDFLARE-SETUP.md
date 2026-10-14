@@ -1,46 +1,45 @@
-# AJAYNXT Social Hub — lowest-cost setup
+# AJAYNXT Social Hub — low-cost deployment
 
-## Architecture and cost target
+## Architecture
 
-The current codebase uses Cloudflare Workers + D1 database for the API and shared project data, and Firebase Authentication only for Google sign-in. It does not use Supabase, Firestore or Firebase Cloud Functions.
+The app uses Cloudflare Workers for APIs, Cloudflare D1 for shared data, and Firebase Authentication only for Google sign-in. No Supabase, Firebase Firestore, Firebase Admin SDK or Firebase Cloud Functions are required.
 
-It can start at ₹0 while usage remains within the providers' free quotas. The currently published Cloudflare Workers Free plan includes up to 100,000 requests per day; D1 Free includes 5 million rows read/day, 100,000 rows written/day and up to 5 GB total D1 storage across databases, with a 500 MB maximum database size. These are enforceable limits, not unlimited capacity. Confirm current terms and quotas before deployment:
+This can start at ₹0 while use remains inside free quotas. Current published limits include up to 100,000 Workers requests/day and D1 Free limits of 5 million rows read/day, 100,000 rows written/day and 5 GB total D1 storage, with a 500 MB maximum per free database. These are real limits, not unlimited scale. Check official pricing/limits before launch:
 - https://developers.cloudflare.com/workers/platform/limits/
 - https://developers.cloudflare.com/d1/platform/pricing/
 - https://firebase.google.com/docs/projects/billing/firebase-pricing-plans
 
-Vercel Hobby is currently defined for personal, non-commercial use, so the older Vercel preview should not be the production hosting plan for a future client/agency service:
+Vercel Hobby is currently for personal, non-commercial use, so the older Vercel preview is not the production target for a future client/agency service:
 - https://vercel.com/legal/terms
 
-Do not activate paid add-ons until the exact cost and need are known.
+Do not enable paid services until their price and need are clear.
 
-## What is in the repository
+## Included in this repository
 
-- Cloudflare Worker API with Firebase ID-token verification.
-- D1 schema for organizations, memberships, multiple projects, metrics, draft content, sales, costs, integrations metadata, scheduled-post placeholders and audit events.
-- Project-level authorization on API routes.
-- Super Admin gate enforced by the server using the configured Firebase UID. Only that UID can create/revoke platform Admin IDs.
-- Private Admin Console at /admin.html.
-- Project-specific CSV imports, duplicate protection, growth reports and cautious trend estimates.
-- Financial data entry/reconciliation that labels revenue minus entered costs as NOT net profit.
-- Installable PWA shell. Native iOS/Android app binaries are not built yet.
+- Cloudflare Worker API with Firebase ID token validation.
+- D1 database schema for organizations, memberships, projects, metric imports, draft content, sales, costs, integrations metadata, scheduled-post placeholders, reports and audit events.
+- Project-scoped API authorization.
+- Server-side Super Admin UID enforcement; only this UID can create or revoke platform Admin IDs.
+- Admin Console at /admin.html.
+- Financial reconciliation labelled revenue minus entered costs, NOT net profit.
+- Installable PWA shell. Native app-store binaries are not built yet.
 
-This code is committed to GitHub, but has NOT been connected to the user's Cloudflare account or Firebase project from this session. No real social, ads, Swiggy or Zomato connection is active. Those integrations need their own official permissions and successful tests.
+This is committed code, not a connected production deployment. No Cloudflare account or Firebase project was configured during this coding session. Social media, ads, Swiggy and Zomato are not connected; they need their own official permission flow and successful API test.
 
-## 1. Create Firebase Authentication
+## 1. Firebase Google sign-in
 
-1. Go to https://console.firebase.google.com/ and create/select a dedicated AJAYNXT Social Hub project.
-2. Keep it on the no-cost Spark plan while only using no-cost features. Do not enable paid Firebase products just to make the app sign in.
-3. In Project settings, create a Web app. Copy the exact Firebase Web App values: Project ID, API key, Auth domain and App ID.
-4. In Authentication > Sign-in method, enable Google sign-in.
-5. Authorized domains will be updated after the first Cloudflare deployment.
-6. Keep this Firebase Project ID identical to the issuer project ID expected by the Worker.
+1. Open https://console.firebase.google.com/ and create/select a dedicated AJAYNXT Social Hub project.
+2. Use the no-cost Spark plan while relying only on free features; do not enable paid services just for sign-in.
+3. Project settings > create a Web app. Copy the exact Project ID, API key, Auth domain and App ID.
+4. Authentication > Sign-in method: enable Google.
+5. Add the actual Cloudflare hostname to Authorized domains after deployment.
+6. The Firebase Project ID configured in the Worker must match the project issuing your ID tokens.
 
 Official guide: https://firebase.google.com/docs/auth/web/google-signin
 
 ## 2. Clone and install on the MacBook
 
-Open Terminal and run:
+Open Terminal:
 
 ~~~bash
 git clone https://github.com/ajaynxt/ajaynxt-superapp.git
@@ -49,9 +48,9 @@ npm install
 cp .dev.vars.example .dev.vars
 ~~~
 
-Edit .dev.vars with the actual Firebase web configuration for local development. This file is ignored by Git. Do not commit it or send it in a screenshot.
+Edit .dev.vars with the actual Firebase Web app settings. The file is ignored by Git; never commit or share it.
 
-Run the build and test suite:
+Run checks:
 
 ~~~bash
 npm run build
@@ -59,10 +58,9 @@ npm run check:syntax
 npm test
 ~~~
 
-## 3. Create the Cloudflare database
+## 3. Create D1
 
-1. Create/sign in to a Cloudflare account at https://dash.cloudflare.com/.
-2. From the project folder, install/login through Wrangler:
+In the project directory:
 
 ~~~bash
 npx wrangler login
@@ -70,18 +68,19 @@ npx wrangler whoami
 npx wrangler d1 create ajaynxt-social-hub
 ~~~
 
-3. Wrangler prints a real database ID. Replace the placeholder value in wrangler.jsonc under d1_databases with that exact ID. Never guess or reuse a made-up ID.
-4. Apply the schema:
+Cloudflare returns a real database ID. Replace the all-zero placeholder in wrangler.jsonc with the exact returned ID. Never guess this value.
+
+Apply the schema:
 
 ~~~bash
 npm run db:migrate:remote
 ~~~
 
-Wrangler tracks the migrations it has applied. Do not apply the same migration manually a second time.
+Wrangler records which migrations have run. Do not manually reapply an already applied migration.
 
-## 4. Configure Worker environment values
+## 4. Configure remote Worker secrets
 
-For development, edit the ignored .dev.vars file. For remote deployment, set the values using Cloudflare's encrypted Worker secrets:
+Set these exact Firebase Web values as encrypted Cloudflare Worker secrets:
 
 ~~~bash
 npx wrangler secret put FIREBASE_PROJECT_ID
@@ -90,84 +89,63 @@ npx wrangler secret put FIREBASE_AUTH_DOMAIN
 npx wrangler secret put FIREBASE_APP_ID
 ~~~
 
-Use the exact values copied from the Firebase Web app. Optional values can also be set if Firebase provided them:
+Optionally set FIREBASE_STORAGE_BUCKET and FIREBASE_MESSAGING_SENDER_ID if Firebase provides them. The current app does not use a Firebase service-account private key.
 
-~~~bash
-npx wrangler secret put FIREBASE_STORAGE_BUCKET
-npx wrangler secret put FIREBASE_MESSAGING_SENDER_ID
-~~~
+For local testing, put the same values in the ignored .dev.vars file. Do not add the owner UID until you have copied it from Firebase Authentication.
 
-Do not configure a Firebase service-account private key. This architecture does not need Firebase Admin SDK credentials. Public Firebase web config is returned by /api/config to initialise the browser SDK; it is not an admin credential.
-
-APP_ORIGIN is optional. If you set it, use the exact browser origin that should call the API, including scheme, and keep local development and production origins distinct.
-
-## 5. Deploy, allow the domain, then set the Super Admin
-
-Deploy only after inserting the actual D1 ID and configuring the Firebase values:
+## 5. Deploy and configure the sole Super Admin
 
 ~~~bash
 npm run deploy
 ~~~
 
-Wrangler prints the deployed Worker URL, normally under workers.dev. Copy its hostname.
+Wrangler prints the site hostname under workers.dev.
 
-1. In Firebase Console > Authentication > Settings > Authorized domains, add the exact deployed hostname.
-2. Open the site on that hostname and click Sign in to sync. Sign in with your own Google account. On the first pass, the API will record the signed-in user but will refuse workspace creation until the owner UID allowlist is set. This is an intentional fail-closed security step.
-3. In Firebase Console > Authentication > Users, copy the exact UID of your own account.
-4. Back in Terminal, run:
+1. Copy the deployed hostname into Firebase Console > Authentication > Settings > Authorized domains.
+2. Open the site and use Sign in to sync with your own Google account. At first, workspace creation is blocked because no Super Admin UID has been configured yet. This is intentional.
+3. Open Firebase Console > Authentication > Users and copy the exact UID for your personal owner account.
+4. In Terminal run:
 
 ~~~bash
 npx wrangler secret put AJAYNXT_SUPER_ADMIN_UID
 ~~~
 
-Paste your exact Firebase UID when prompted. Do not use your email, display name, another person's UID or a guessed value.
-5. Reload the app, click sign in/sync again, and check /api/health. ownerAccessConfigured should be true.
-6. Open /admin.html and verify that the console identifies you as the owner and displays your workspace. The first successful workspace initialization creates the default Diamond Restaurant project.
+Paste that exact UID when prompted. Never use an email, display name, guessed ID or another user's UID.
+5. Reload the deployed app and sign in/sync again. Visit /api/health; ownerAccessConfigured should be true.
+6. Open /admin.html. The first valid owner initialization creates your workspace and the default Diamond Restaurant project.
 
-There is no client-side Super Admin bypass. If you deliberately change the owner account later, update the secret through an authorized Cloudflare deployment session.
+Super Admin status is checked by server-side UID on every privileged request; it is not merely a hidden UI button. There is no client-side owner bypass.
 
-## 6. Admin IDs and staff/client access
+## 6. Create/revoke Admin IDs
 
-Each person who will be added must first sign in to Social Hub once using Google, so their Firebase identity is present in the app user directory.
+Each staff/client user must sign into the app once using Google first. Then, in /admin.html as the configured owner:
+- Enter a registered user's email in Platform Admin IDs to create an AJN-ADM-XXXXXXXX identifier.
+- Revoke Admin access using the Revoke control. The API also revokes their workspace memberships with role admin.
+- Use Workspace Members to assign client_viewer, analyst, operator or admin.
+- The admin workspace role is only available to someone with an active platform Admin ID.
 
-From /admin.html, while signed in with the configured owner account:
-- Create Admin ID: enter the registered user's email. The API creates an AJN-ADM-XXXXXXXX identifier.
-- Revoke: disable the selected Admin ID. Their organisation Admin memberships are revoked by the backend as well.
-- Workspace Members: grant an existing user client_viewer, analyst, operator or admin access. The admin role is permitted only if a platform Admin ID already exists.
+Only the configured Super Admin UID can create/revoke platform Admin IDs. Other Admins cannot promote themselves or create another Admin ID. These IDs are access records, not passwords; Google sign-in is still required.
 
-Only AJAYNXT_SUPER_ADMIN_UID can create/revoke platform Admin IDs. Admins cannot add or promote other Admins. Owner privilege is checked by the Worker on every privileged request, not by hiding a button in the page. The IDs are access records, not passwords; Google sign-in remains the authentication method.
+## 7. Current routes and data rules
 
-## 7. Important routes and truthfulness rules
+- /api/health reports service/config health, not external account connection.
+- /api/config returns only public Firebase Web settings.
+- /api/workspaces and /api/projects list and manage the user's authorized workspace/projects.
+- /api/projects/:id/imports and /api/projects/:id/metrics import/read project metrics with duplicate protection.
+- /api/projects/:id/reports creates comparisons only with 14 complete consecutive days and trend estimates only with 28 complete consecutive days.
+- /api/projects/:id/drafts syncs draft content across devices. It does not publish posts.
+- /api/projects/:id/sales, /costs and /financial-report store/reconcile actual financial inputs. Revenue minus recorded costs is not net profit.
 
-- /api/health: deployment/configuration health; not proof of third-party connections.
-- /api/config: public Firebase Web App configuration only.
-- /api/workspaces: authenticated workspace list.
-- /api/projects: project CRUD with workspace membership enforcement.
-- /api/projects/:id/imports and /api/projects/:id/metrics: project-scoped observations, duplicate rejection and reads.
-- /api/projects/:id/reports: comparison/forecast only when the needed consecutive history exists.
-- /api/projects/:id/drafts: cross-device saved draft notes, not published posts.
-- /api/projects/:id/sales and /api/projects/:id/costs: actual manual/imported finance records.
-- /api/projects/:id/financial-report: revenue less recorded costs, NOT net profit.
-- /api/admin/admins: owner-only platform Admin ID operations.
-- /api/admin/members: owner-only workspace role operations.
+No social/ad/marketplace integration should show Connected until official OAuth approval, account authorization and a real provider API test all succeed. The current integrations catalogue is not an active integration.
 
-No social platform, ad account, Swiggy or Zomato account should be marked connected until an official OAuth flow is implemented, authorization succeeds, and a test reads the expected provider resource. Current integration cards are a catalogue, not a live connection.
+## 8. Install the PWA
 
-## 8. PWA install
+After HTTPS deployment:
+- Android: open in Chrome and choose Install app/Add to Home Screen.
+- iPhone: open in Safari > Share > Add to Home Screen.
 
-Once deployed over HTTPS, Android users can open the site in Chrome and use Install app/Add to Home Screen. iPhone/iPad users can open the site in Safari and use Share > Add to Home Screen. This provides an installable web app, not a native App Store/Play Store binary.
+This installs the web app shell, not an App Store or Play Store binary. The service worker does not cache API responses, reports, auth or Admin Console data.
 
-The service worker does not cache API responses, reports, account credentials or the Admin Console. When offline, a fresh API read/write will not work.
+## 9. Before using client data
 
-## 9. Production safety checklist
-
-Before uploading sensitive client data:
-- Run npm test, npm run check:syntax and npm run build in CI.
-- Verify no-token requests return 401.
-- Verify an unapproved Google account cannot create/revoke Admin IDs (403).
-- Revoke a test membership and confirm cross-project reads immediately fail.
-- Check that D1 project foreign keys, unique indexes and migration state match expectations.
-- Review backups/restore, user deletion and audit retention.
-- Monitor Worker and D1 quota usage. Free quotas can halt operations at their limits.
-- Treat manual CSVs and financial entries as unverified until reconciled with original reports/invoices.
-- Implement actual OAuth connectors and scheduled publication only after each provider's current API permissions/terms are verified.
+Run build, syntax and unit tests. Verify no-token requests return 401; unapproved users cannot create/revoke Admin IDs (403); revoked users lose access; and cross-workspace IDs cannot read data. Check backups, retention and delete/restore workflows. Free quotas can stop requests at their limit. Treat user-imported data as unverified until it is reconciled with source reports/invoices.
