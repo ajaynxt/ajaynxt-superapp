@@ -8,3 +8,6 @@ FIREBASE_STORAGE_BUCKET=
 FIREBASE_MESSAGING_SENDER_ID=
 AJAYNXT_SUPER_ADMIN_UID=replace-after-first-owner-sign-in
 APP_ORIGIN=http://localhost:8787
+
+# Optional comma-separated exact browser/MCP origins. Do not use a wildcard.
+MCP_ALLOWED_ORIGINS=
