@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS sales_observations (
   imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_sales_project_date ON sales_observations(project_id,date DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_unique_source_metric ON sales_observations(project_id,date,source,metric,currency);
 
 CREATE TABLE IF NOT EXISTS business_costs (
   id TEXT PRIMARY KEY,
