@@ -144,7 +144,8 @@ function mcpToolDefinitions(){
     {name:'list_sales',description:'Read entered/imported sales observations.',inputSchema:schema,annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
     {name:'list_costs',description:'Read entered cost observations.',inputSchema:schema,annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
     {name:'list_content_drafts',description:'Read project content drafts; drafts are not published posts.',inputSchema:schema,annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
-    {name:'list_integrations',description:'Read integration status metadata only; never exposes credentials or proves an unverified connection is live.',inputSchema:schema,annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}}
+    {name:'list_integrations',description:'Read integration status metadata only; never exposes credentials or proves an unverified connection is live.',inputSchema:schema,annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
+    {name:'get_data_retention_policy',description:'Read the 365-day retention policy, exclusions and last scheduled cleanup result.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}}
   ];
 }
 async function requireMcpToken(request,env){
@@ -167,6 +168,10 @@ async function resolveMcpProject(db,token,args){
 async function callMcpTool(db,token,name,args){
   args=args&&typeof args==='object'&&!Array.isArray(args)?args:{};
   const range=dateRange(new URLSearchParams({...(args.startDate?{startDate:args.startDate}:{}),...(args.endDate?{endDate:args.endDate}:{})}));
+  if(name==='get_data_retention_policy'){
+    const run=await db.prepare('SELECT started_at,finished_at,status,error_code,deleted_metrics,deleted_sales,deleted_costs,deleted_reports,deleted_drafts,deleted_scheduled_posts,deleted_audit_events,deleted_expired_mcp_tokens FROM retention_runs ORDER BY started_at DESC LIMIT 1').first();
+    return {retentionDays:365,dailyCleanupTimeUtc:'02:17',basis:'Observation date for metric/sales/cost rows; creation/generation timestamp for reports, drafts, scheduled posts and audit events.',deletedWhenOlderThan:['Metric observations','Sales/cost rows','Generated reports','Draft content','Old scheduled post records','Audit events'],retained:['Active workspace/project/user access configuration','Active integration configuration','Super Admin UID secret'],lastRun:run||null,warning:'Automatic cleanup is effective only after all migrations and the scheduled Worker have been deployed and a successful run has been recorded.'};
+  }
   if(name==='list_projects'){
     const rows=token.project_id
       ?await db.prepare("SELECT id,name,type,location,status,created_at FROM projects WHERE id=? AND organization_id=? AND status='active'").bind(token.project_id,token.organization_id).all()
