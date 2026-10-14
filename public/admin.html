@@ -121,7 +121,7 @@ $('copyMcpToken').addEventListener('click',async()=>{
 });
 
 let auth = null, user = null, workspace = null, config = null, projects = [];
-const sdk = 'https://www.gstatic.com/firebasejs/12.19.0/';
+const sdk = 'https://www.gstatic.com/firebasejs/13.0.0/';
 function status(message,type=''){ $('status').textContent=message; $('status').className='status '+type; }
 async function api(path, options={}) {
   if (!auth || !auth.currentUser) throw new Error('Sign in first.');
