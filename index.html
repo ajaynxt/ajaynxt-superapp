@@ -35,6 +35,8 @@
   <nav class="nav">
     <button data-page="integrations"><span class="nav-ico">⛓</span>Integrations</button>
     <button data-page="developer"><span class="nav-ico">⌘</span>Developer Hub</button>
+    <button data-page="mcp"><span class="nav-ico">↗</span>AI Read Plugin</button>
+    <button data-page="privacy"><span class="nav-ico">◷</span>Data Retention</button>
     <button data-page="settings"><span class="nav-ico">⚙</span>Settings</button>
   </nav>
   <div class="sidebar-bottom">
@@ -76,8 +78,12 @@ let cloudMode=false;
 let cloudWorkspace=null;
 let cloudDrafts=[];
 let cloudDraftProjectId=null;
+let mcpTokens=[];
+let mcpNewToken=null;
+let mcpEndpointUrl='';
+let retentionSnapshot=null;
 window.ajnxtHubToast=toast;
-const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',financials:'Financials',integrations:'Integrations',developer:'Developer Hub',settings:'Settings'};
+const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',financials:'Financials',integrations:'Integrations',developer:'Developer Hub',mcp:'AI Read Plugin',privacy:'Data Retention',settings:'Settings'};
 const platforms=[
  {name:'Instagram',kind:'Social',symbol:'◎',mode:'Not connected',detail:'Professional accounts; insights and publishing depend on approved permissions.',accountUrl:'https://www.instagram.com/accounts/login/',setupUrl:'https://developers.facebook.com/docs/instagram-platform/'},
  {name:'Facebook Pages',kind:'Social',symbol:'f',mode:'Not connected',detail:'Page insights and publishing require Page access and app permissions.',accountUrl:'https://www.facebook.com/login/',setupUrl:'https://developers.facebook.com/'},
