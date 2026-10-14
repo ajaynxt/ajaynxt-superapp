@@ -40,10 +40,10 @@ CREATE TABLE IF NOT EXISTS projects (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  schema_version INTEGER NOT NULL DEFAULT 1,
-  UNIQUE(organization_id,name_lower)
+  schema_version INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_projects_org_status ON projects(organization_id,status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_org_name_active ON projects(organization_id,name_lower) WHERE status='active';
 
 CREATE TABLE IF NOT EXISTS metrics (
   id TEXT PRIMARY KEY,
