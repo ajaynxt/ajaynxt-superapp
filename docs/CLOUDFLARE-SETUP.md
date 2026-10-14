@@ -189,3 +189,29 @@ This installs the web app shell, not an App Store or Play Store binary. The serv
 ## 11. Before using client data
 
 Run build, syntax and unit tests. Verify no-token requests return 401; unapproved users cannot create/revoke Admin IDs (403); revoked users lose access; and cross-workspace IDs cannot read data. Check backups, retention and delete/restore workflows. Free quotas can stop requests at their limit. Treat user-imported data as unverified until it is reconciled with source reports/invoices.
+
+
+## Project-by-project reports and marketplace CSV imports
+
+The Reports page shows one card per project in the current authorized workspace. Use **Open report**, **Download JSON**, or **Download CSV** on the specific project card. The selected report/print view and each export use that single project's ID; they do not include other client projects. The JSON export includes the project's metrics, available comparisons/forecasts, financial reconciliation and connection status. CSV contains that project's metric records.
+
+For Swiggy or Zomato:
+1. Sign into the restaurant owner/Partner account at https://partner.swiggy.com/login or https://www.zomato.com/partners/. Do not use a customer or delivery-rider account.
+2. Export the real Partner report available to that restaurant account. Swiggy Partner reports and Zomato report formats/availability may differ by account.
+3. Sign into AJAYNXT Social Hub and select the Diamond Restaurant project (or the project where that outlet belongs).
+4. Open **Financials → Import Swiggy / Zomato report CSV** and select the source. Select the CSV file and map its date, value and optional currency columns.
+5. Choose the date format that matches the source. Choose **Sum** for rows that should be added into a daily total, **Count** for count-per-row exports, or **Last value** only when a daily summary file already has one summary row per day.
+6. Review the sample and import. The tool groups rows by date/currency and allows up to 80 daily/currency records per import batch. Split a longer report into smaller periods if required.
+7. Open **Reports** and export the individual project JSON/CSV. Financials shows source-specific totals, available 14-day comparisons and eligible seven-day trend estimates from the imported sales series.
+
+The importer does not sign in to or scrape a Partner portal. It does not invent sales or orders. Imports are unverified until reconciled with the source report. Ensure that each selected value column is the intended amount/count and use the correct aggregation—summing an already-daily-total report can overstate results.
+
+## MCP rate-limit secret
+
+Before using OAuth Dynamic Client Registration, generate a unique random value of at least 32 bytes and set it as the Worker secret when prompted:
+
+~~~bash
+npx wrangler secret put MCP_RATE_LIMIT_SALT
+~~~
+
+Keep the secret out of Git, browser code and chat. It is used to hash client-network identifiers for registration rate-limiting; it is not a client token and it is not shared with AI clients.
