@@ -461,4 +461,4 @@ export default {
     }
   }
 };
-export { analyticsFor, validDate };
+export { analyticsFor, validDate, requireSuperAdmin };
