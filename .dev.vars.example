@@ -11,3 +11,6 @@ APP_ORIGIN=http://localhost:8787
 
 # Optional comma-separated exact browser/MCP origins. Do not use a wildcard.
 MCP_ALLOWED_ORIGINS=
+
+# Required for remote MCP OAuth dynamic client registration; use a random secret value.
+MCP_RATE_LIMIT_SALT=replace-with-random-secret
