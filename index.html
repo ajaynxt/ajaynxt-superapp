@@ -456,6 +456,7 @@ const currencyIndex=currencyChoice===''?null:Number(currencyChoice);
 const dateFormat=document.getElementById('marketplaceDateFormat').value;
 const metric=document.getElementById('marketplaceMetric').value;
 const aggregation=document.getElementById('marketplaceAggregation').value;
+if(aggregation==='count'&&metric!=='orders')throw new Error('Count rows per day only makes sense for the Orders (count) metric. Choose Orders or use Sum for revenue/refunds/discounts.');
 const source=document.getElementById('marketplaceSource').value;
 const byDay=new Map();
 for(let rowIndex=1;rowIndex<pendingSalesCsv.rows.length;rowIndex++){
