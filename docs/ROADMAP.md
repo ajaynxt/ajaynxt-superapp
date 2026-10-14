@@ -14,6 +14,12 @@
 - [x] Sales/cost records and revenue-minus-entered-costs reconciliation (not net profit)
 - [x] PWA install shell that excludes API/admin data from caching
 - [x] CI workflow for build, syntax and unit tests
+- [x] Read-only MCP endpoint with OAuth authorization code + PKCE, scoped workspace/project consent and owner-managed tokens
+- [x] OAuth dynamic client-registration rate limit and one-time token display
+- [x] Daily 365-day reporting-data cleanup with owner-visible status/manual trigger
+- [x] Official account portal and developer setup links in the integrations catalogue
+- [ ] Deploy D1/Firebase configuration and validate MCP OAuth against ChatGPT or another compatible client
+- [ ] Verify each provider-specific API connection separately; account portal links alone are not data integrations
 - [ ] Create real Cloudflare D1 and replace placeholder DB ID
 - [ ] Configure Firebase Google sign-in and authorize the deployed hostname
 - [ ] Set the owner's exact Firebase UID as encrypted AJAYNXT_SUPER_ADMIN_UID
