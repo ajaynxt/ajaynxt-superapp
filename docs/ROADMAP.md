@@ -13,11 +13,14 @@
 
 ## Phase 1 — Secure application core
 
-- [ ] Choose and configure production hosting and database
-- [ ] Authentication, organization/project membership and role policies
-- [ ] Database, row-level security, audit logs and backup/restore
-- [ ] Project/tenant isolation tests
-- [ ] Secure file-import pipeline with validation reports
+- [ ] Freeze multi-tenant architecture and threat model (see docs/SECURITY-ARCHITECTURE.md)
+- [ ] Choose hosting and dedicated database; do not silently reuse an unrelated production database
+- [ ] Authentication, session revocation, organization/project membership and role policies
+- [ ] Database schema, row-level security, append-only audit logs, private storage and backup/restore
+- [ ] Project/tenant isolation tests for allowed and denied operations
+- [ ] Encrypted provider-token storage and secure server-side secrets
+- [ ] Secure import pipeline with validation report, idempotency and source provenance
+- [ ] CI secret scanning, dependency checks, integration tests and preview rollout
 
 ## Phase 2 — First verified live connector
 
@@ -61,7 +64,11 @@ Suggested first candidates should be selected based on access to the actual acco
 - [ ] Explicit project authorization and tests against cross-project data leakage
 - [ ] Connect to each AI client only after its current remote MCP requirements are verified
 
-## Phase 7 — Forecast quality
+## Phase 7 — Mobile app and forecast quality
+
+- [ ] Responsive installable PWA using the same secured backend; no sensitive API-response caching
+- [ ] Install and device-coverage tests across supported browsers
+- [ ] Native React Native/Expo app only if requirements justify it after PWA
 
 - [ ] Backtest forecast methods against historical holdout periods
 - [ ] Report model error and data coverage
