@@ -347,7 +347,7 @@ async function oauthEndpoint(request,env,url){
     if(method!=='GET')return methodDenied(['GET']);
     const q=url.searchParams,clientId=q.get('client_id'),redirectUri=q.get('redirect_uri'),state=q.get('state'),challenge=q.get('code_challenge'),challengeMethod=q.get('code_challenge_method'),scope=(q.get('scope')||'').trim(),resource=q.get('resource')||origin+'/mcp';
     if(q.get('response_type')!=='code'||!state||state.length>512||!challenge||challengeMethod!=='S256')fail(400,'INVALID_AUTHORIZATION_REQUEST','Authorization requires response_type=code, state and S256 PKCE.');
-    const requestedScopes=scope.split(/\\s+/).filter(Boolean);
+    const requestedScopes=scope.split(/\s+/).filter(Boolean);
     if(!requestedScopes.includes('mcp:read')||requestedScopes.some(value=>!['mcp:read','offline_access'].includes(value)))fail(400,'INVALID_SCOPE','Supported scopes are mcp:read and optional offline_access.');
     if(resource!==origin+'/mcp')fail(400,'INVALID_RESOURCE','Resource must be this server’s /mcp endpoint.');
     const client=await db.prepare("SELECT client_id,client_name,redirect_uris_json,status FROM oauth_clients WHERE client_id=? AND status='active' LIMIT 1").bind(clientId).first();
