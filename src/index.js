@@ -418,13 +418,14 @@ async function oauthEndpoint(request,env,url){
       const hash=await hashValue(rawRefresh),old=await db.prepare("SELECT * FROM oauth_refresh_tokens WHERE token_hash=? AND client_id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(hash,client.client_id).first();
       if(!old)fail(400,'INVALID_GRANT','Refresh token is invalid, expired or already used.');
       await orgAccess(db,old.user_uid,old.organization_id,READ);if(old.project_id)await projectAccess(db,old.user_uid,old.organization_id,old.project_id,READ);
+      const family=await db.prepare("SELECT id FROM mcp_tokens WHERE id=? AND status='active' LIMIT 1").bind(old.family_id).first();
+      if(!family)fail(400,'INVALID_GRANT','This OAuth session has been revoked.');
       const spent=await db.prepare("UPDATE oauth_refresh_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP RETURNING id").bind(old.id).first();
       if(!spent)fail(400,'INVALID_GRANT','Refresh token was already rotated.');
       const access='ajnxt_mcp_'+randomSecret(),accessHash=await hashValue(access),refresh='ajnxt_refresh_'+randomSecret(),refreshHash=await hashValue(refresh),accessExpiry=sqlTime(Date.now()+3600*1000),refreshExpiry=sqlTime(Date.now()+90*86400000);
-      await db.batch([
-        db.prepare("UPDATE mcp_tokens SET token_hash=?,expires_at=?,last_used_at=NULL WHERE id=? AND status='active'").bind(accessHash,accessExpiry,old.family_id),
-        db.prepare("INSERT INTO oauth_refresh_tokens(id,token_hash,client_id,family_id,user_uid,organization_id,project_id,scope,resource,expires_at,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'active',CURRENT_TIMESTAMP)").bind(crypto.randomUUID(),refreshHash,client.client_id,old.family_id,old.user_uid,old.organization_id,old.project_id,old.scope,old.resource,refreshExpiry)
-      ]);
+      const rotated=await db.prepare("UPDATE mcp_tokens SET token_hash=?,expires_at=?,last_used_at=NULL WHERE id=? AND status='active' RETURNING id").bind(accessHash,accessExpiry,old.family_id).first();
+      if(!rotated)fail(400,'INVALID_GRANT','This OAuth session has been revoked.');
+      await db.prepare("INSERT INTO oauth_refresh_tokens(id,token_hash,client_id,family_id,user_uid,organization_id,project_id,scope,resource,expires_at,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'active',CURRENT_TIMESTAMP)").bind(crypto.randomUUID(),refreshHash,client.client_id,old.family_id,old.user_uid,old.organization_id,old.project_id,old.scope,old.resource,refreshExpiry).run();
       return reply({access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope:old.scope,resource:old.resource});
     }
     fail(400,'UNSUPPORTED_GRANT','Supported grants are authorization_code and refresh_token.');
