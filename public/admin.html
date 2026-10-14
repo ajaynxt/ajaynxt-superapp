@@ -44,7 +44,7 @@
   <article class="panel wide" id="mcpPanel">
     <div class="rowtitle"><h2>AI plugin / MCP — read only</h2><span class="pill">Owner controlled</span></div>
     <p>Connect an AI client to read authorized reports. The MCP server exposes only read tools; it cannot create projects, publish posts, change settings or delete data.</p>
-    <div class="notice"><strong>Remote MCP endpoint</strong><br><code id="mcpEndpoint">Loading…</code><br><span class="small">OAuth discovery: <code id="mcpDiscovery">Loading…</code></span></div>
+    <div class="notice"><strong>Remote MCP endpoint</strong><br><code id="mcpEndpoint">Loading…</code><br><span class="small">OAuth discovery: <code id="mcpDiscovery">Loading…</code></span><div class="actions" style="margin-top:12px"><button id="copyMcpEndpoint" type="button">Copy MCP endpoint</button><button id="copyMcpDiscovery" type="button">Copy OAuth discovery</button><a href="https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt" target="_blank" rel="noopener noreferrer" style="color:var(--accent);align-self:center">ChatGPT MCP setup guide ↗</a></div></div>
     <p>For ChatGPT/other clients that support remote MCP OAuth, use the endpoint and let the client open Google sign-in and workspace/project consent. Compatibility and plan access must be checked in that client. The static token below is only for clients that explicitly support custom Bearer headers.</p>
     <form class="form" id="mcpForm">
       <input id="mcpLabel" maxlength="80" placeholder="Token label e.g. AJAYNXT report reader" required>
@@ -55,11 +55,53 @@
     <div id="mcpOneTime" class="notice hidden"><strong>Copy this token now — it will not be shown again.</strong><textarea id="mcpTokenValue" readonly></textarea><button id="copyMcpToken" type="button">Copy token</button><div class="small">Treat it like a password. Never paste it into GitHub, source files or a report.</div></div>
     <div id="mcpTokensTable" class="tablewrap"></div>
   </article>
+  <article class="panel wide" id="retentionPanel">
+    <div class="rowtitle"><h2>365-day data retention</h2><span class="pill">Daily scheduled cleanup</span></div>
+    <p>Daily cleanup removes metric observations, sales and cost rows by observation date older than 365 days, plus old reports, drafts, scheduled-post records and audit events. Workspace/project settings and active account-connection metadata are not purged by this policy.</p>
+    <div class="actions"><button id="refreshRetention" type="button">Check cleanup status</button><button id="runRetention" class="danger" type="button">Run cleanup now</button></div>
+    <div id="retentionStatus" class="notice">Retention status has not been loaded.</div>
+  </article>
 </section>
 <div class="foot">Security note: this page is a UI only; every privileged action is enforced by the server. Never share Firebase service keys or deployment secrets.</div>
 </main>
 <script type="module">
 const $ = id => document.getElementById(id);
+
+$('copyMcpEndpoint').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('mcpEndpoint').textContent);status('MCP endpoint copied.','good');}
+  catch(e){status('Copy failed; select the endpoint text manually.','error');}
+});
+$('copyMcpDiscovery').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('mcpDiscovery').textContent);status('OAuth discovery URL copied.','good');}
+  catch(e){status('Copy failed; select the discovery URL manually.','error');}
+});
+async function loadRetention(){
+  const root=$('retentionStatus');
+  try{
+    const data=await api('/api/admin/retention');
+    const runs=data.lastRuns||[];
+    root.replaceChildren();
+    const text=document.createElement('p');
+    text.textContent='Retention: '+data.retentionDays+' days · schedule: '+data.schedule+' · last recorded runs: '+runs.length;
+    root.appendChild(text);
+    if(runs.length){
+      const last=runs[0],detail=document.createElement('p');
+      detail.textContent='Most recent run: '+last.status+' · started '+last.started_at+' · metrics '+(last.deleted_metrics||0)+', sales '+(last.deleted_sales||0)+', costs '+(last.deleted_costs||0)+', reports '+(last.deleted_reports||0)+', drafts '+(last.deleted_drafts||0)+', audit events '+(last.deleted_audit_events||0)+', OAuth records '+(last.deleted_oauth_records||0)+'.';
+      root.appendChild(detail);
+    }else{
+      const detail=document.createElement('p');detail.textContent='No cleanup run is recorded yet. The first run is scheduled after Worker cron is deployed.';root.appendChild(detail);
+    }
+  }catch(e){root.textContent=e.message||'Retention status is not available.';}
+}
+$('refreshRetention').addEventListener('click',loadRetention);
+$('runRetention').addEventListener('click',async()=>{
+  if(!confirm('Run the 365-day cleanup now? Old reportable data will be permanently deleted.'))return;
+  const button=$('runRetention');button.disabled=true;
+  try{const result=await api('/api/admin/retention/run',{method:'POST',body:{}});status('Retention cleanup completed. Review results below.','good');await loadRetention();}
+  catch(e){status(e.message||'Cleanup failed.','error');}
+  finally{button.disabled=false;}
+});
+
 $('mcpForm').addEventListener('submit',async e=>{
   e.preventDefault();
   try{
@@ -175,6 +217,8 @@ async function refreshAll(){
     $('mcpEndpoint').textContent=mcp.endpoint;
     $('mcpDiscovery').textContent=location.origin+'/.well-known/oauth-authorization-server';
     status('Signed in as '+(user.email||user.uid)+'. Owner-only API check passed.','good');
+    $('retentionStatus').textContent='Loading last cleanup run…';
+    await loadRetention();
     $('loginBtn').textContent='Sign out';
   }catch(e){
     $('workspaceSection').classList.add('hidden');
