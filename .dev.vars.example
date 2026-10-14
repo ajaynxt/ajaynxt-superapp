@@ -1,0 +1,10 @@
+# Copy this file to .dev.vars for local development.
+# Never commit .dev.vars or paste secret values into chat.
+FIREBASE_PROJECT_ID=replace-with-firebase-project-id
+FIREBASE_API_KEY=replace-with-firebase-web-api-key
+FIREBASE_AUTH_DOMAIN=replace-with-project.firebaseapp.com
+FIREBASE_APP_ID=replace-with-firebase-app-id
+FIREBASE_STORAGE_BUCKET=
+FIREBASE_MESSAGING_SENDER_ID=
+AJAYNXT_SUPER_ADMIN_UID=replace-after-first-owner-sign-in
+APP_ORIGIN=http://localhost:8787
