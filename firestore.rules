@@ -1,0 +1,12 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All private project data is accessed through authenticated server API
+    // routes that verify Firebase ID tokens and project membership.
+    // Admin SDK bypasses these rules, so server-side authorization is mandatory.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
