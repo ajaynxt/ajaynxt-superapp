@@ -132,6 +132,32 @@ async function readFinancial(db,projectId,start,end){
   for(const r of costs.results||[]){const item=map.get(r.currency)||{currency:r.currency,reportedRevenue:0,recordedCosts:0,revenueRows:0,allRevenueRowsVerified:false};item.recordedCosts=Number(r.total||0);item.costRows=r.rows;map.set(r.currency,item);}
   return Array.from(map.values()).map(r=>({...r,revenueMinusRecordedCosts:r.reportedRevenue-r.recordedCosts,label:'Revenue minus entered costs — not net profit',sourceVerified:false}));
 }
+
+async function readSalesAnalytics(db,projectId,start,end){
+  let sql='SELECT id,date,source,metric,value,currency,source_verified FROM sales_observations WHERE project_id=?';
+  const args=[projectId];
+  if(start){sql+=' AND date>=?';args.push(start);}
+  if(end){sql+=' AND date<=?';args.push(end);}
+  sql+=' ORDER BY date DESC LIMIT 5000';
+  const result=await db.prepare(sql).bind(...args).all();
+  const rows=result.results||[];
+  const ordered=rows.slice().reverse();
+  const series=ordered.map(r=>({date:r.date,platform:String(r.source||'Unknown source')+' ('+String(r.currency||'INR')+')',metric:String(r.metric||'unknown'),value:Number(r.value)}));
+  const grouped=new Map();
+  for(const r of ordered){
+    const key=[r.source,r.metric,r.currency].join('|||');
+    if(!grouped.has(key))grouped.set(key,{source:r.source,metric:r.metric,currency:r.currency,observations:0,total:0,firstDate:r.date,latestDate:r.date,allVerified:true});
+    const row=grouped.get(key);row.observations+=1;row.total+=Number(r.value);if(r.date<row.firstDate)row.firstDate=r.date;if(r.date>row.latestDate)row.latestDate=r.date;row.allVerified=row.allVerified&&r.source_verified===1;
+  }
+  return {
+    recordCount:rows.length,
+    limitApplied:rows.length===5000,
+    sourceMetrics:Array.from(grouped.values()).map(r=>({...r,sourceVerified:r.allVerified})),
+    ...analyticsFor(series),
+    note:'CSV/manual records are marked unverified until reconciled with the original Partner/POS report.'
+  };
+}
+
 async function hashValue(value){const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');}
 function randomSecret(){const raw=crypto.getRandomValues(new Uint8Array(32));let binary='';for(const b of raw)binary+=String.fromCharCode(b);return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');}
 function mcpToolDefinitions(){
@@ -188,7 +214,7 @@ async function callMcpTool(db,token,name,args){
     const rows=await metricRows(db,p.id,range.start,range.end,2000),data=rows.slice().reverse();
     return {project:{id:p.id,name:p.name},recordCount:rows.length,...analyticsFor(data),disclaimers:['Imported source records have not been independently verified.','Missing dates are not zero.','Forecasts are trend estimates, not promises.']};
   }
-  if(name==='get_financial_report')return {project:{id:p.id,name:p.name},totals:await readFinancial(db,p.id,range.start,range.end),disclaimers:['Manual/imported entries are not verified by default.','Revenue minus entered costs is not net profit.','Different currencies are not combined.']};
+  if(name==='get_financial_report')return {project:{id:p.id,name:p.name},totals:await readFinancial(db,p.id,range.start,range.end),salesAnalytics:await readSalesAnalytics(db,p.id,range.start,range.end),disclaimers:['Manual/imported entries are not verified by default.','Revenue minus entered costs is not net profit.','Different currencies are not combined.']};
   if(name==='list_sales'||name==='list_costs'){
     const isSales=name==='list_sales';let sql=isSales?'SELECT id,date,source,metric,value,currency,source_verified,imported_at FROM sales_observations WHERE project_id=?':'SELECT id,date,category,amount,currency,description,source,created_at FROM business_costs WHERE project_id=?';
     const argsSql=[p.id];if(range.start){sql+=' AND date>=?';argsSql.push(range.start);}if(range.end){sql+=' AND date<=?';argsSql.push(range.end);}sql+=' ORDER BY date DESC LIMIT 100';
@@ -793,7 +819,7 @@ async function router(request,env){
     }
     if(kind==='financial-report'){
       if(method!=='GET')return methodDenied(['GET']);
-      return reply({project:{id:projectId,name:access.project.name},organizationId:orgId,period:range,totals:await readFinancial(db,projectId,range.start,range.end),disclaimers:['This is an entered-record reconciliation, not audited results.','Revenue minus recorded costs is not net profit.','Manual/imported records are unverified by default.','Currencies are grouped separately.']});
+      return reply({project:{id:projectId,name:access.project.name},organizationId:orgId,period:range,totals:await readFinancial(db,projectId,range.start,range.end),salesAnalytics:await readSalesAnalytics(db,projectId,range.start,range.end),disclaimers:['This is an entered-record reconciliation, not audited results.','Revenue minus recorded costs is not net profit.','Manual/imported records are unverified by default.','Currencies are grouped separately.']});
     }
   }
   if(path==='/api/admin/mcp-tokens'){
