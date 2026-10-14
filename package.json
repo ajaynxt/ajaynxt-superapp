@@ -1,0 +1,16 @@
+{
+  "name": "ajaynxt-social-hub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AJAYNXT Social Hub - project-based social and marketplace reporting",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check:syntax": "node scripts/check-syntax.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0"
+  }
+}
