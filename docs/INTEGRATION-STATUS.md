@@ -24,8 +24,11 @@ No third-party account is connected in the deployed product because the Cloudfla
 - LinkedIn Ads: https://www.linkedin.com/campaignmanager/ — API overview: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads
 - Google Business Profile: https://business.google.com/ — performance API: https://developers.google.com/my-business/reference/performance/rest
 - Google Analytics: https://analytics.google.com/ — Data API: https://developers.google.com/analytics/devguides/reporting/data/v1
-- Swiggy Restaurant Partner: https://partner.swiggy.com/
-- Zomato Partner: https://www.zomato.com/partner-with-us — published developer docs: https://www.zomato.com/developer/integration/docs/overview/
+- Swiggy Restaurant Partner login: https://partner.swiggy.com/login
+- Official Swiggy Partner Android app: https://play.google.com/store/apps/details?id=in.swiggy.partnerapp
+- Zomato Restaurant Partner login: https://www.zomato.com/partners/
+- Zomato onboarding page: https://www.zomato.com/partner-with-us
+- Zomato POS developer docs: https://www.zomato.com/developer/integration/docs/overview/
 - WhatsApp Business / Meta Business: https://business.facebook.com/ — WhatsApp API docs: https://developers.facebook.com/docs/whatsapp/
 
 Account login is always on the provider's site. Logging into the provider does not connect that account to AJAYNXT. Each live connector still requires its own OAuth flow, approved scopes, provider API keys/app review if required, and a successful API test.
@@ -67,3 +70,24 @@ This does not mean ChatGPT, Gemini, Grok or another AI client is already configu
 - Forecasts are estimates, not promises. Ads ROAS needs a defensible conversion-value/attribution source.
 - Revenue is not profit. Revenue minus recorded costs is not net profit when costs, tax, refunds, commissions, ingredients, labour or overheads are missing.
 - One-year retention removes old dated metric/sales/cost rows and old generated reports/drafts/audit records. Access/workspace configuration is retained unless manually removed so the owner can keep logging in. Details are in docs/CLOUDFLARE-SETUP.md.
+
+
+## Project-wise report export behaviour
+
+- The Reports page lists one report card per project in the currently authenticated workspace.
+- Open report loads only the selected project's records.
+- Download JSON includes a single project's metrics, coverage, eligible comparisons/forecasts, financial reconciliation and connection metadata.
+- Download CSV contains only a single project's daily metrics.
+- The selected project's Print/Save PDF action also prints only the current report view.
+- The server requires the same project ID in report/finance/integration requests and verifies workspace/project membership. There is no default combined report across client projects.
+- In cloud mode, other project cards show Not loaded until that project has actually been fetched; they must not be interpreted as having zero metrics.
+
+## Swiggy / Zomato practical route
+
+Use the restaurant Partner login, not customer or delivery-rider credentials. Swiggy's official Partner app describes restaurant owner access and notes that business-metric access depends on owner access/enablement; ask the Swiggy point of contact if the account lacks metrics.
+
+Zomato's public POS API documentation describes menu/order/outlet workflows for integrated POS vendors, with a formal onboarding process. Its prerequisites mention minimum vendor scale (50 restaurants or 10,000 monthly orders, with final eligibility decided by Zomato). This does not establish general analytics API access for a single restaurant. Therefore:
+- Keep the provider labelled Import required until official account-specific API access is approved and tested.
+- Prefer genuine Partner report exports, then map the real date, amount/value and currency columns in the Financials CSV importer.
+- Group order-line CSVs by sum/count only where appropriate; use last-value aggregation only for an already-aggregated daily summary.
+- Reconcile the imported totals with the original report before using them in client reports.
