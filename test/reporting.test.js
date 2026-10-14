@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyticsFor, validDate, requireSuperAdmin } from '../src/index.js';
+import { analyticsFor, validDate, requireOwner, mcpToolDefinitions } from '../src/index.js';
 
 function records(count, gapAt = -1, metric = 'profile_visits') {
   const out = [];
@@ -43,7 +43,14 @@ test('28 consecutive observations are required for a forecast', () => {
 });
 
 test('the server-side Super Admin UID allowlist is strict', () => {
-  assert.doesNotThrow(() => requireSuperAdmin({ uid: 'owner-uid' }, { AJAYNXT_SUPER_ADMIN_UID: 'owner-uid' }));
+  assert.doesNotThrow(() => requireOwner({ uid: 'owner-uid' }, { AJAYNXT_SUPER_ADMIN_UID: 'owner-uid' }));
   assert.throws(() => requireSuperAdmin({ uid: 'different-user' }, { AJAYNXT_SUPER_ADMIN_UID: 'owner-uid' }), { code: 'SUPER_ADMIN_REQUIRED' });
   assert.throws(() => requireSuperAdmin({ uid: 'owner-uid' }, {}), { code: 'SUPER_ADMIN_NOT_CONFIGURED' });
+});
+
+test('every MCP tool is explicitly read-only and no write/delete tools are published', () => {
+  const tools = mcpToolDefinitions();
+  assert.ok(tools.length >= 6);
+  assert.ok(tools.every(tool => tool.annotations && tool.annotations.readOnlyHint === true));
+  assert.ok(!tools.some(tool => /create|update|delete|publish|admin/i.test(tool.name)));
 });
