@@ -29,6 +29,7 @@
     <button data-page="calendar"><span class="nav-ico">▦</span>Publishing Calendar</button>
     <button data-page="analytics"><span class="nav-ico">⌁</span>Analytics & Growth</button>
     <button data-page="reports"><span class="nav-ico">▤</span>Reports</button>
+    <button data-page="financials"><span class="nav-ico">₹</span>Financials</button>
   </nav>
   <div class="nav-label">Connect & Extend</div>
   <nav class="nav">
@@ -76,7 +77,7 @@ let cloudWorkspace=null;
 let cloudDrafts=[];
 let cloudDraftProjectId=null;
 window.ajnxtHubToast=toast;
-const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',integrations:'Integrations',developer:'Developer Hub',settings:'Settings'};
+const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',financials:'Financials',integrations:'Integrations',developer:'Developer Hub',settings:'Settings'};
 const platforms=[
  {name:'Instagram',kind:'Social',symbol:'◎',mode:'Not connected',detail:'Professional accounts; insights and publishing depend on approved permissions.'},
  {name:'Facebook Pages',kind:'Social',symbol:'f',mode:'Not connected',detail:'Page insights and publishing require Page access and app permissions.'},
@@ -197,9 +198,40 @@ function renderDeveloper(){return header('Developer Hub','Prepare connector regi
 '<div class="grid integration-grid">'+['OpenAI / ChatGPT API','Google Gemini API','Anthropic Claude API','xAI Grok API','Remote MCP Server','Custom REST API'].map((x,i)=>'<div class="card integration-card"><div class="integration-top"><div class="integration-identity"><div class="integration-logo">'+['OA','G','A','x','M','API'][i]+'</div><div><div class="integration-name">'+x+'</div><div class="integration-kind">'+(i<4?'AI provider':'Developer integration')+'</div></div></div><span class="pill amber">Not configured</span></div><p>'+['Model API access and billing configured by the owner.','Google AI Studio / Cloud project credentials and quotas.','API access and workspace credentials where required.','xAI API access and usage billing.','HTTPS endpoint, authentication, tool manifest and authorization rules.','Documented schema, server-side proxy and test credentials stored securely.'][i]+'</p><div class="integration-bottom"><span style="font-size:10px;color:var(--muted)">Setup not verified</span><button class="btn small" data-action="provider-details" data-name="'+x+'">View setup</button></div></div>').join('')+'</div>'+
 '<div class="card" style="margin-top:16px"><div class="card-head"><div><h2>Registered connector catalogue</h2><p>Local notes only — these entries do not run tools or connect providers.</p></div><span class="pill">'+plugins.length+' entries</span></div><div class="card-body">'+(plugins.length?'<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Type</th><th>Endpoint</th><th>Status</th><th></th></tr></thead><tbody>'+plugins.map(p=>'<tr><td>'+esc(p.name)+'</td><td>'+esc(p.type)+'</td><td class="mono">'+esc(p.endpoint||'—')+'</td><td><span class="pill amber">Catalogue only</span></td><td><button class="btn small" data-action="delete-plugin" data-id="'+esc(p.id)+'">Remove</button></td></tr>').join('')+'</tbody></table></div>':'<div class="empty-state"><div class="empty-icon">⌘</div><h3>No developer connectors registered</h3><p>Register a non-secret endpoint and type to keep track of future integrations. Actual connector execution needs a backend and a security review.</p><button class="btn primary" data-action="new-plugin">Register connector</button></div>')+'</div></div>';
 }
+function renderFinancials(){
+const today=new Date(Date.now()+330*60000).toISOString().slice(0,10);
+return header('Financials','Record actual sales and costs per project. The result below is reconciliation, not audited or net profit.','<button class="btn" data-action="refresh-financials">Refresh totals</button>')+
+'<div class="status-banner"><span class="status-dot"></span><div><strong>Evidence-first financials.</strong> Enter actual records or values imported from a POS/marketplace report. Manual entries are not independently verified. Revenue minus entered costs is not net profit; missing commissions, ingredients, tax or overhead can make the result incomplete.</div></div>'+
+'<div class="grid split-grid">'+
+'<div class="card"><div class="card-head"><div><h2>Record sales</h2><p>Use one source per row, e.g. Restaurant POS, Swiggy report, or Zomato report.</p></div></div><div class="card-body"><form id="salesForm" class="form-grid">'+
+'<div class="field"><label for="salesDate">Date</label><input id="salesDate" type="date" value="'+today+'" required></div>'+
+'<div class="field"><label for="salesSource">Source / channel</label><input id="salesSource" maxlength="100" placeholder="Restaurant POS / Swiggy CSV" required></div>'+
+'<div class="field"><label for="salesMetric">Metric</label><select id="salesMetric"><option value="revenue">Reported revenue (₹)</option><option value="orders">Orders (count)</option><option value="refunds">Refunds (₹)</option><option value="discounts">Discounts (₹)</option></select></div>'+
+'<div class="field"><label for="salesValue">Value</label><input id="salesValue" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required></div>'+
+'<button class="btn primary" type="submit">Save sales record</button></form></div></div>'+
+'<div class="card"><div class="card-head"><div><h2>Record a cost</h2><p>Enter expenses you can substantiate. Use separate lines for separate costs.</p></div></div><div class="card-body"><form id="costForm" class="form-grid">'+
+'<div class="field"><label for="costDate">Date</label><input id="costDate" type="date" value="'+today+'" required></div>'+
+'<div class="field"><label for="costCategory">Category</label><select id="costCategory"><option>Food / ingredients</option><option>Packaging</option><option>Staff / labour</option><option>Rent</option><option>Utilities</option><option>Delivery / commission</option><option>Marketing / ads</option><option>Tax / fees</option><option>Other</option></select></div>'+
+'<div class="field"><label for="costAmount">Amount (₹)</label><input id="costAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required></div>'+
+'<div class="field"><label for="costDescription">Description (optional)</label><input id="costDescription" maxlength="300" placeholder="Invoice / bill note"></div>'+
+'<button class="btn primary" type="submit">Save cost record</button></form></div></div>'+
+'<div class="card wide"><div class="card-head"><div><h2>Financial reconciliation</h2><p>All available project records, grouped by currency.</p></div><span class="pill amber">Not net profit</span></div><div class="card-body" id="financialSummary"><p class="muted">Sign in and select a project to load records.</p></div></div></div>';
+}
+async function loadFinancialSummary(){
+const root=document.getElementById('financialSummary');
+if(!root)return;
+if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){root.innerHTML='<p class="muted">Sign in to load or save financial records. Local preview does not store financial data.</p>';return;}
+root.innerHTML='<p class="muted">Loading saved records…</p>';
+try{
+const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/financial-report?organizationId='+encodeURIComponent(cloudWorkspace.id));
+const totals=result.totals||[];
+if(!totals.length){root.innerHTML='<div class="empty-state"><h3>No financial rows yet</h3><p>Add actual sales and cost records above. No values are estimated or invented.</p></div>';return;}
+root.innerHTML='<div class="steps">'+totals.map(t=>'<div class="step"><div class="step-copy"><b>'+esc(t.currency)+' · Reported revenue</b><p>'+num(t.revenueRows||0)+' revenue row(s)</p></div><div class="metric-value">'+esc(t.currency)+' '+num(t.reportedRevenue)+'</div></div><div class="step"><div class="step-copy"><b>'+esc(t.currency)+' · Recorded costs</b><p>'+num(t.costRows||0)+' cost row(s)</p></div><div class="metric-value">'+esc(t.currency)+' '+num(t.recordedCosts)+'</div></div><div class="step"><div class="step-copy"><b>Revenue minus entered costs</b><p>Not net profit · sources not independently verified</p></div><div class="metric-value">'+esc(t.currency)+' '+num(t.revenueMinusRecordedCosts)+'</div></div>').join('')+'</div><p class="muted" style="margin-top:12px">'+(result.disclaimers||[]).map(esc).join(' ')+'</p>';
+}catch(error){root.innerHTML='<p class="muted">'+esc(error.message||'Financial report could not be loaded.')+'</p>';}
+}
 function renderSettings(){return header('Settings','Review the current browser-only MVP state and export or clear locally stored data.','<button class="btn" data-action="export-backup">Export local backup</button>')+
 '<div class="grid split-grid"><div class="card"><div class="card-head"><div><h2>Workspace information</h2><p>Current browser storage state</p></div></div><div class="card-body"><div class="metric-row"><span>Current project</span><strong>'+esc(currentProject().name)+'</strong></div><div class="metric-row"><span>Projects in this browser</span><strong>'+num(projects.length)+'</strong></div><div class="metric-row"><span>Imported observations</span><strong>'+num(rows.length)+'</strong></div><div class="metric-row"><span>Registered connector notes</span><strong>'+num(plugins.length)+'</strong></div><div class="metric-row"><span>Storage</span><strong>Browser localStorage</strong></div><div class="notice" style="margin-top:15px"><strong>Not production-ready for private client data.</strong> This MVP has no server-side user authentication, team roles, encrypted OAuth tokens, central database or remote MCP service.</div></div></div><div class="card"><div class="card-head"><div><h2>Data integrity and backup</h2><p>Keep source records traceable.</p></div></div><div class="card-body"><div class="mini-desc">Imported files stay in this browser. The source label is retained, but the app does not independently verify a file against its provider. Export backups before clearing browser storage.</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:17px"><button class="btn primary" data-action="export-backup">Download backup JSON</button><button class="btn" data-action="clear-imports">Clear current project imports</button></div><div style="margin-top:12px"><button class="btn" data-action="delete-local-drafts">Clear current project drafts</button></div></div></div></div><div class="footer-note">Production checklist: authentication, database and row-level security, OAuth for each platform, encrypted token storage, scheduled sync, API error handling, MCP authentication, audit logging, backups and real integration tests.</div>'}
-function render(){currentProjectOption();document.getElementById('projectCount').textContent=projects.length;const root=document.getElementById('pageRoot');const f={overview:renderOverview,projects:renderProjects,content:renderContent,calendar:renderCalendar,analytics:renderAnalytics,reports:renderReports,integrations:renderIntegrations,developer:renderDeveloper,settings:renderSettings};root.innerHTML=(f[currentPage]||renderOverview)();document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===currentPage));}
+function render(){currentProjectOption();document.getElementById('projectCount').textContent=projects.length;const root=document.getElementById('pageRoot');const f={overview:renderOverview,projects:renderProjects,content:renderContent,calendar:renderCalendar,analytics:renderAnalytics,reports:renderReports,financials:renderFinancials,integrations:renderIntegrations,developer:renderDeveloper,settings:renderSettings};root.innerHTML=(f[currentPage]||renderOverview)();document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===currentPage));if(currentPage==='financials')loadFinancialSummary();}
 function openModal(title,body){document.getElementById('modalTitle').textContent=title;document.getElementById('modalContent').innerHTML=body;document.getElementById('modalBackdrop').classList.add('open');}
 function closeModal(){document.getElementById('modalBackdrop').classList.remove('open')}
 function newProjectModal(){openModal('Create project','<form id="projectForm"><div class="field"><label for="projectName">Project / business name *</label><input id="projectName" required maxlength="90" placeholder="e.g. Client brand name"></div><div class="two-col"><div class="field"><label for="projectType">Business type</label><select id="projectType"><option>Restaurant</option><option>Retail</option><option>Healthcare</option><option>Professional service</option><option>Creator / Personal brand</option><option>Other</option></select></div><div class="field"><label for="projectLocation">Location (optional)</label><input id="projectLocation" maxlength="100" placeholder="City / area"></div></div><div class="notice">A project creates an isolated local workspace entry. Social accounts, ads and sales sources are not automatically connected.</div><div class="modal-actions"><button type="button" class="btn" data-action="close-modal">Cancel</button><button type="submit" class="btn primary">Create project</button></div></form>');}
@@ -231,6 +263,7 @@ else if(a==='project-report'){const rs=rows.filter(r=>r.projectId===id);const nm
 else if(a==='integration-details')detailsModal(name);
 else if(a==='provider-details')providerModal(name);
 else if(a==='new-plugin')pluginModal();
+else if(a==='refresh-financials'){loadFinancialSummary()}
 else if(a==='delete-plugin'){plugins=plugins.filter(x=>x.id!==id);save();render();toast('Local connector note removed. No external connection was changed.')}
 else if(a==='new-draft')draftModal();
 else if(a==='delete-draft'){if(cloudMode&&window.ajnxtCloud&&cloudDraftProjectId===currentProjectId){window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/drafts/'+encodeURIComponent(id)+'?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'DELETE'}).then(()=>{cloudDrafts=cloudDrafts.filter(x=>x.id!==id);render();toast('Draft archived in the secure workspace. It was not published.')}).catch(err=>toast(err.message||'Draft could not be removed.'))}else{const drafts=readDrafts().filter(x=>x.id!==id);localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(drafts));render();toast('Local draft removed.')}}
@@ -253,7 +286,37 @@ else if(e.target.id==='renameForm'){const p=projects.find(x=>x.id===e.target.dat
 else if(e.target.id==='pluginForm'){const name=document.getElementById('pluginName').value.trim(),endpoint=document.getElementById('pluginEndpoint').value.trim();if(endpoint&&!/^https:\/\//i.test(endpoint)){toast('Use an HTTPS URL.');return}if(plugins.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('A connector note with that name already exists.');return}plugins.push({id:'plugin-'+Date.now().toString(36),name,type:document.getElementById('pluginType').value,endpoint,createdAt:new Date().toISOString()});save();closeModal();render();toast('Catalogue note saved locally. Connector is not active.')}
 else if(e.target.id==='draftForm'){const title=document.getElementById('draftTitle').value.trim();const platform=document.getElementById('draftPlatforms').value;const copy=document.getElementById('draftCopy').value.trim();const d=readDrafts();d.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(d));render();toast('Draft saved locally. It has not been published.')}
 });
-document.getElementById('pageRoot').addEventListener('submit',async function(e){if(e.target.id!=='draftForm')return;e.preventDefault();const title=document.getElementById('draftTitle').value.trim();const platform=document.getElementById('draftPlatforms').value;const copy=document.getElementById('draftCopy').value.trim();if(cloudMode&&window.ajnxtCloud){try{const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/drafts?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{organizationId:cloudWorkspace.id,title,platform,copy}});cloudDrafts=[result.draft,...readDrafts()];cloudDraftProjectId=currentProjectId;render();toast('Draft saved to the secure workspace. It has not been published.')}catch(err){toast(err.message||'Draft could not be saved.')}return;}const drafts=readDrafts();drafts.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(drafts));render();toast('Draft saved locally. It has not been published.');});
+document.getElementById('pageRoot').addEventListener('submit',async function(e){
+if(!['draftForm','salesForm','costForm'].includes(e.target.id))return;
+e.preventDefault();
+if(e.target.id==='draftForm'){
+const title=document.getElementById('draftTitle').value.trim();
+const platform=document.getElementById('draftPlatforms').value;
+const copy=document.getElementById('draftCopy').value.trim();
+if(cloudMode&&window.ajnxtCloud){
+try{
+const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/drafts?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{organizationId:cloudWorkspace.id,title,platform,copy}});
+cloudDrafts=cloudDraftProjectId===currentProjectId?[result.draft,...cloudDrafts]:[result.draft];cloudDraftProjectId=currentProjectId;render();toast('Draft saved to the secure workspace. It has not been published.');
+}catch(err){toast(err.message||'Draft could not be saved.')}return;
+}
+const drafts=readDrafts();drafts.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(drafts));render();toast('Draft saved locally. It has not been published.');return;
+}
+if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in and use the authenticated backend before recording financial data.');return;}
+try{
+if(e.target.id==='salesForm'){
+const body={organizationId:cloudWorkspace.id,records:[{date:document.getElementById('salesDate').value,source:document.getElementById('salesSource').value.trim(),metric:document.getElementById('salesMetric').value,value:Number(document.getElementById('salesValue').value),currency:'INR'}]};
+const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/sales?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body});
+toast('Saved '+result.imported+' sales record. Source remains unverified.');
+e.target.reset();document.getElementById('salesDate').value=new Date(Date.now()+330*60000).toISOString().slice(0,10);
+}else{
+const body={organizationId:cloudWorkspace.id,records:[{date:document.getElementById('costDate').value,category:document.getElementById('costCategory').value,amount:Number(document.getElementById('costAmount').value),currency:'INR',description:document.getElementById('costDescription').value.trim(),source:'Manual entry'}]};
+const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/costs?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body});
+toast('Saved '+result.saved+' cost record. This entry remains unverified.');
+e.target.reset();document.getElementById('costDate').value=new Date(Date.now()+330*60000).toISOString().slice(0,10);
+}
+await loadFinancialSummary();
+}catch(err){toast(err.message||'Financial record could not be saved.')}
+});
 document.getElementById('csvInput').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f)processCsv(f);e.target.value=''});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('sidebar').classList.remove('open')}});
 
