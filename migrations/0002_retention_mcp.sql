@@ -16,8 +16,18 @@ CREATE INDEX IF NOT EXISTS idx_mcp_tokens_org_status ON mcp_tokens(organization_
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_expiry ON mcp_tokens(status,expires_at);
 CREATE TABLE IF NOT EXISTS retention_runs (
   id TEXT PRIMARY KEY,
-  executed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_counts_json TEXT NOT NULL
+  started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at TEXT,
+  deleted_metrics INTEGER NOT NULL DEFAULT 0,
+  deleted_sales INTEGER NOT NULL DEFAULT 0,
+  deleted_costs INTEGER NOT NULL DEFAULT 0,
+  deleted_reports INTEGER NOT NULL DEFAULT 0,
+  deleted_drafts INTEGER NOT NULL DEFAULT 0,
+  deleted_scheduled_posts INTEGER NOT NULL DEFAULT 0,
+  deleted_audit_events INTEGER NOT NULL DEFAULT 0,
+  deleted_expired_mcp_tokens INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','complete','partial')),
+  error_code TEXT
 );
 ALTER TABLE org_members ADD COLUMN revoked_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_metrics_retention ON metrics(date);
