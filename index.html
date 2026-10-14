@@ -301,6 +301,12 @@ else if(a==='project-report'){const rs=rows.filter(r=>r.projectId===id);const nm
 else if(a==='integration-details')detailsModal(name);
 else if(a==='provider-details')providerModal(name);
 else if(a==='new-plugin')pluginModal();
+else if(a==='refresh-mcp-tokens'){loadMcpTokens()}
+else if(a==='copy-mcp-endpoint'){const value=mcpEndpointUrl||((window.location.origin||'')+'/mcp');navigator.clipboard.writeText(value).then(()=>toast('MCP endpoint copied.')).catch(()=>prompt('Copy this MCP endpoint:',value))}
+else if(a==='copy-mcp-token'){const field=document.getElementById('mcpNewTokenField');if(mcpNewToken){navigator.clipboard.writeText(mcpNewToken).then(()=>toast('One-time token copied.')).catch(()=>prompt('Copy this one-time token:',mcpNewToken))}else toast('Create a token first; secret values are not stored in the token list.')}
+else if(a==='revoke-mcp-token'){if(!confirm('Revoke this read-only MCP token now? Any connected client using it will lose access.'))return;window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id)+'&id='+encodeURIComponent(id),{method:'DELETE'}).then(()=>{if(mcpNewToken){mcpNewToken=null}toast('MCP token revoked.');loadMcpTokens()}).catch(err=>toast(err.message||'Could not revoke MCP token.'))}
+else if(a==='refresh-retention'){loadRetentionInfo()}
+else if(a==='run-retention'){if(!confirm('Run the 365-day retention cleanup now? Records older than the policy cutoff may be permanently deleted. Continue only after saving any required external backup.'))return;window.ajnxtCloud.request('/api/admin/retention/run',{method:'POST'}).then(()=>{toast('Retention job finished.');loadRetentionInfo()}).catch(err=>toast(err.message||'Retention job failed.'))}
 else if(a==='refresh-financials'){loadFinancialSummary()}
 else if(a==='delete-plugin'){plugins=plugins.filter(x=>x.id!==id);save();render();toast('Local connector note removed. No external connection was changed.')}
 else if(a==='new-draft')draftModal();
@@ -325,7 +331,7 @@ else if(e.target.id==='pluginForm'){const name=document.getElementById('pluginNa
 else if(e.target.id==='draftForm'){const title=document.getElementById('draftTitle').value.trim();const platform=document.getElementById('draftPlatforms').value;const copy=document.getElementById('draftCopy').value.trim();const d=readDrafts();d.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(d));render();toast('Draft saved locally. It has not been published.')}
 });
 document.getElementById('pageRoot').addEventListener('submit',async function(e){
-if(!['draftForm','salesForm','costForm'].includes(e.target.id))return;
+if(!['draftForm','salesForm','costForm','mcpTokenForm'].includes(e.target.id))return;
 e.preventDefault();
 if(e.target.id==='draftForm'){
 const title=document.getElementById('draftTitle').value.trim();
@@ -338,6 +344,16 @@ cloudDrafts=cloudDraftProjectId===currentProjectId?[result.draft,...cloudDrafts]
 }catch(err){toast(err.message||'Draft could not be saved.')}return;
 }
 const drafts=readDrafts();drafts.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(drafts));render();toast('Draft saved locally. It has not been published.');return;
+}
+if(e.target.id==='mcpTokenForm'){
+if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in as Super Admin on the deployed app first.');return;}
+try{
+const result=await window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{label:document.getElementById('mcpLabel').value.trim(),projectId:document.getElementById('mcpProjectScope').value||null,expiresInDays:Number(document.getElementById('mcpExpiry').value)}});
+mcpNewToken=result.token;mcpEndpointUrl=result.endpoint||((window.location.origin||'')+'/mcp');
+toast('Read-only MCP token created. Copy it now; it is shown only once.');
+await loadMcpTokens();
+}catch(err){toast(err.message||'MCP token could not be created.')}
+return;
 }
 if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in and use the authenticated backend before recording financial data.');return;}
 try{
