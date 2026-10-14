@@ -88,6 +88,7 @@ let mcpEndpointUrl='';
 let mcpLoadedWorkspaceId=null;
 let retentionSnapshot=null;
 let retentionLoaded=false;
+let pendingSalesCsv=null;
 window.ajnxtHubToast=toast;
 const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',financials:'Financials',integrations:'Integrations',developer:'Developer Hub',mcp:'AI Read Plugin',privacy:'Data Retention',settings:'Settings'};
 const platforms=[
@@ -227,6 +228,14 @@ function renderFinancials(){
 const today=new Date(Date.now()+330*60000).toISOString().slice(0,10);
 return header('Financials','Record actual sales and costs per project. The result below is reconciliation, not audited or net profit.','<button class="btn" data-action="refresh-financials">Refresh totals</button>')+
 '<div class="status-banner"><span class="status-dot"></span><div><strong>Evidence-first financials.</strong> Enter actual records or values imported from a POS/marketplace report. Manual entries are not independently verified. Revenue minus entered costs is not net profit; missing commissions, ingredients, tax or overhead can make the result incomplete.</div></div>'+
+'<div class="card wide" style="margin:18px 0"><div class="card-head"><div><h2>Import Swiggy / Zomato report CSV</h2><p>Use a real Partner report. Map its date/value columns and choose the aggregation deliberately. The source stays marked unverified.</p></div><span class="pill">Actual file required</span></div><div class="card-body"><form id="marketplaceCsvForm" class="form-grid">'+
+'<div class="field"><label for="marketplaceSource">Report source</label><select id="marketplaceSource"><option value="Swiggy Partner report">Swiggy Partner report</option><option value="Zomato Partner report">Zomato Partner report</option><option value="Restaurant POS report">Restaurant POS report</option><option value="Other sales report">Other sales report</option></select></div>'+
+'<div class="field"><label for="marketplaceMetric">Metric to import</label><select id="marketplaceMetric"><option value="revenue">Reported revenue (₹)</option><option value="orders">Orders (count)</option><option value="refunds">Refunds (₹)</option><option value="discounts">Discounts (₹)</option></select></div>'+
+'<div class="field"><label for="marketplaceDateFormat">Date format in source file</label><select id="marketplaceDateFormat"><option value="iso">YYYY-MM-DD</option><option value="dmy_slash">DD/MM/YYYY</option><option value="dmy_dash">DD-MM-YYYY</option></select></div>'+
+'<div class="field"><label for="marketplaceAggregation">How to combine multiple rows on one day</label><select id="marketplaceAggregation"><option value="sum">Sum values per day (orders/revenue lines)</option><option value="count">Count rows per day (order count)</option><option value="last">Keep last value per day (daily-summary exports)</option><option value="average">Average values per day</option></select></div>'+
+'<div class="field"><label for="marketplaceCsvFile">Choose report CSV</label><input id="marketplaceCsvFile" type="file" accept=".csv,text/csv" required><div class="muted">CSV only. For safety, 2 MB max; split large files into smaller periods.</div></div>'+
+'<div id="salesCsvMapper" class="grid split-grid" style="display:none"><div class="field"><label for="salesCsvDateColumn">Date column</label><select id="salesCsvDateColumn"></select></div><div class="field"><label for="salesCsvValueColumn">Amount/value column</label><select id="salesCsvValueColumn"></select></div><div class="field"><label for="salesCsvCurrencyColumn">Currency column (optional)</label><select id="salesCsvCurrencyColumn"><option value="">Default INR</option></select></div></div>'+
+'<div id="salesCsvPreview" class="muted">Select a report to map its columns and preview the rows.</div><button class="btn primary" id="importMarketplaceCsvBtn" type="submit" disabled>Import daily sales summaries</button><button class="btn" type="button" data-action="download-sales-template">Download template</button></form></div></div>'+
 '<div class="grid split-grid">'+
 '<div class="card"><div class="card-head"><div><h2>Record sales</h2><p>Use one source per row, e.g. Restaurant POS, Swiggy report, or Zomato report.</p></div></div><div class="card-body"><form id="salesForm" class="form-grid">'+
 '<div class="field"><label for="salesDate">Date</label><input id="salesDate" type="date" value="'+today+'" required></div>'+
@@ -343,6 +352,7 @@ else if(a==='copy-mcp-token'){const field=document.getElementById('mcpNewTokenFi
 else if(a==='revoke-mcp-token'){if(!confirm('Revoke this read-only MCP token now? Any connected client using it will lose access.'))return;window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id)+'&id='+encodeURIComponent(id),{method:'DELETE'}).then(()=>{if(mcpNewToken){mcpNewToken=null}toast('MCP token revoked.');loadMcpTokens(true)}).catch(err=>toast(err.message||'Could not revoke MCP token.'))}
 else if(a==='refresh-retention'){loadRetentionInfo(true)}
 else if(a==='run-retention'){if(!confirm('Run the 365-day retention cleanup now? Records older than the policy cutoff may be permanently deleted. Continue only after saving any required external backup.'))return;window.ajnxtCloud.request('/api/admin/retention/run',{method:'POST'}).then(()=>{toast('Retention job finished.');loadRetentionInfo(true)}).catch(err=>toast(err.message||'Retention job failed.'))}
+else if(a==='download-sales-template'){download('ajnxt-marketplace-sales-template.csv','date,value,currency\\n','text/csv;charset=utf-8');toast('Template downloaded. Add real report rows only.');}
 else if(a==='refresh-financials'){loadFinancialSummary()}
 else if(a==='delete-plugin'){plugins=plugins.filter(x=>x.id!==id);save();render();toast('Local connector note removed. No external connection was changed.')}
 else if(a==='new-draft')draftModal();
@@ -367,7 +377,7 @@ else if(e.target.id==='pluginForm'){const name=document.getElementById('pluginNa
 else if(e.target.id==='draftForm'){const title=document.getElementById('draftTitle').value.trim();const platform=document.getElementById('draftPlatforms').value;const copy=document.getElementById('draftCopy').value.trim();const d=readDrafts();d.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(d));render();toast('Draft saved locally. It has not been published.')}
 });
 document.getElementById('pageRoot').addEventListener('submit',async function(e){
-if(!['draftForm','salesForm','costForm','mcpTokenForm'].includes(e.target.id))return;
+if(!['draftForm','salesForm','costForm','mcpTokenForm','marketplaceCsvForm'].includes(e.target.id))return;
 e.preventDefault();
 if(e.target.id==='draftForm'){
 const title=document.getElementById('draftTitle').value.trim();
@@ -380,6 +390,58 @@ cloudDrafts=cloudDraftProjectId===currentProjectId?[result.draft,...cloudDrafts]
 }catch(err){toast(err.message||'Draft could not be saved.')}return;
 }
 const drafts=readDrafts();drafts.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(drafts));render();toast('Draft saved locally. It has not been published.');return;
+}
+if(e.target.id==='marketplaceCsvForm'){
+if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in to the configured backend before importing sales data.');return;}
+if(!pendingSalesCsv){toast('Choose a CSV file and map its date and value columns first.');return;}
+try{
+const dateIndex=Number(document.getElementById('salesCsvDateColumn').value);
+const valueIndex=Number(document.getElementById('salesCsvValueColumn').value);
+const currencyChoice=document.getElementById('salesCsvCurrencyColumn').value;
+const currencyIndex=currencyChoice===''?null:Number(currencyChoice);
+const dateFormat=document.getElementById('marketplaceDateFormat').value;
+const metric=document.getElementById('marketplaceMetric').value;
+const aggregation=document.getElementById('marketplaceAggregation').value;
+const source=document.getElementById('marketplaceSource').value;
+const byDay=new Map();
+for(let rowIndex=1;rowIndex<pendingSalesCsv.rows.length;rowIndex++){
+const row=pendingSalesCsv.rows[rowIndex];
+if(!row.some(value=>String(value||'').trim()!==''))continue;
+if(row.length!==pendingSalesCsv.headers.length)throw new Error('CSV row '+(rowIndex+1)+' does not match the header column count.');
+const dateRaw=String(row[dateIndex]||'').trim();
+let date=dateRaw;
+if(dateFormat==='dmy_slash'||dateFormat==='dmy_dash'){
+const parts=dateRaw.split(dateFormat==='dmy_slash'?'/':'-');
+if(parts.length!==3)throw new Error('Could not parse date on row '+(rowIndex+1)+'. Choose the exact date format shown in the report.');
+const day=parts[0].padStart(2,'0'),month=parts[1].padStart(2,'0'),year=parts[2];
+if(!/^\d{4}$/.test(year))throw new Error('Date year on row '+(rowIndex+1)+' must be four digits.');
+date=year+'-'+month+'-'+day;
+}
+if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date+'T00:00:00.000Z'))||new Date(date+'T00:00:00.000Z').toISOString().slice(0,10)!==date)throw new Error('Invalid date on row '+(rowIndex+1)+'. Select the correct date format.');
+const rawValue=String(row[valueIndex]??'').trim();
+const cleanedValue=rawValue.replace(/[₹$£€,\s]/g,'');
+const numeric=cleanedValue===''?NaN:Number(cleanedValue);
+if(!Number.isFinite(numeric)||numeric<0)throw new Error('Value on row '+(rowIndex+1)+' is blank, negative or not numeric. Select the correct value column.');
+let currency='INR';
+if(currencyIndex!==null){
+const rawCurrency=String(row[currencyIndex]||'').trim().toUpperCase();
+if(rawCurrency==='₹'||rawCurrency==='RS'||rawCurrency==='RS.'||rawCurrency==='RUPEE'||rawCurrency==='RUPEES')currency='INR';
+else currency=rawCurrency;
+if(!/^[A-Z]{3}$/.test(currency))throw new Error('Currency on row '+(rowIndex+1)+' must be a 3-letter code such as INR. Choose another column or Default INR.');
+}
+const key=date+'|||'+currency;
+const current=byDay.get(key)||{date,currency,count:0,sum:0,last:0};
+current.count+=1;current.sum+=metric==='orders'&&aggregation==='count'?1:numeric;current.last=numeric;byDay.set(key,current);
+}
+if(!byDay.size)throw new Error('No usable rows found in this CSV.');
+const records=Array.from(byDay.values()).sort((a,b)=>a.date.localeCompare(b.date)).map(group=>({date:group.date,source,metric,value:aggregation==='count'?group.count:aggregation==='last'?group.last:aggregation==='average'?group.sum/group.count:group.sum,currency:group.currency}));
+if(records.length>80)throw new Error('This file produces '+records.length+' daily/currency records. The free-tier batch limit is 80; split the source report into smaller date ranges.');
+const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/sales?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{organizationId:cloudWorkspace.id,records}});
+toast('Imported '+result.imported+' '+source+' daily record(s). Source is still unverified until checked against the original report.');
+pendingSalesCsv=null;e.target.reset();
+await loadFinancialSummary();
+}catch(err){toast(err.message||'Sales report could not be imported.')}
+return;
 }
 if(e.target.id==='mcpTokenForm'){
 if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in as Super Admin on the deployed app first.');return;}
@@ -407,6 +469,40 @@ e.target.reset();document.getElementById('costDate').value=new Date(Date.now()+3
 await loadFinancialSummary();
 }catch(err){toast(err.message||'Financial record could not be saved.')}
 });
+
+document.getElementById('pageRoot').addEventListener('change',async function(e){
+if(e.target.id!=='marketplaceCsvFile')return;
+const file=e.target.files&&e.target.files[0];
+pendingSalesCsv=null;
+const mapper=document.getElementById('salesCsvMapper'),preview=document.getElementById('salesCsvPreview'),button=document.getElementById('importMarketplaceCsvBtn');
+if(button)button.disabled=true;
+if(!file){if(mapper)mapper.style.display='none';if(preview)preview.textContent='No CSV selected.';return;}
+try{
+if(file.size>2*1024*1024)throw new Error('CSV is larger than 2 MB. Export a smaller period and try again.');
+const rows=parseCsv(await file.text());
+if(rows.length<2)throw new Error('CSV must contain a header and at least one data row.');
+if(rows.length>5001)throw new Error('This CSV has more than 5,000 lines. Split it into smaller periods.');
+const headers=rows[0].map(h=>String(h||'').trim());
+if(headers.some(h=>!h))throw new Error('Every CSV column must have a header name.');
+const normalized=headers.map(h=>h.toLowerCase());
+if(new Set(normalized).size!==normalized.length)throw new Error('The CSV has duplicate column names. Rename duplicated headers before importing.');
+pendingSalesCsv={rows,headers,fileName:file.name};
+const makeOptions=headers.map((h,i)=>'<option value="'+i+'">'+esc(h)+' (column '+(i+1)+')</option>').join('');
+const dateSelect=document.getElementById('salesCsvDateColumn'),valueSelect=document.getElementById('salesCsvValueColumn'),currencySelect=document.getElementById('salesCsvCurrencyColumn');
+dateSelect.innerHTML=makeOptions;valueSelect.innerHTML=makeOptions;
+currencySelect.innerHTML='<option value="">Default INR</option>'+makeOptions;
+const dateCandidate=normalized.findIndex(h=>/^(date|order_date|business_date|settlement_date|created_at|created_date)$/.test(h));
+const valueCandidate=normalized.findIndex(h=>/(revenue|sales|amount|value|total|net_payable|gross|order_total|food_value|order_value)/.test(h));
+const currencyCandidate=normalized.findIndex(h=>/^(currency|currency_code|currency_type)$/.test(h));
+dateSelect.value=String(dateCandidate>=0?dateCandidate:0);
+valueSelect.value=String(valueCandidate>=0&&valueCandidate!==dateCandidate?valueCandidate:Math.min(1,headers.length-1));
+currencySelect.value=currencyCandidate>=0?String(currencyCandidate):'';
+mapper.style.display='grid';button.disabled=false;
+const sample=rows.slice(1,4).map(row=>row.map(cell=>String(cell||'').slice(0,40)).join(' | ')).map(esc).join('<br>');
+preview.innerHTML='<b>'+esc(file.name)+'</b> · '+(rows.length-1)+' data row(s). Sample:<br>'+sample+'<p>Confirm mapped columns before importing. Rows will be grouped by date and currency; choose Sum for order-line exports or Last value for daily summary exports.</p>';
+}catch(error){pendingSalesCsv=null;if(mapper)mapper.style.display='none';if(preview)preview.textContent=error.message||'CSV could not be read.';toast(error.message||'CSV could not be read.')}
+});
+
 document.getElementById('csvInput').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f)processCsv(f);e.target.value=''});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('sidebar').classList.remove('open')}});
 
