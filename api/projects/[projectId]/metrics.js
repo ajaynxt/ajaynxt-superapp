@@ -1,10 +1,10 @@
 'use strict';
 
-const { getFirebaseAdmin } = require('../_lib/firebase');
-const { requireUser } = require('../_lib/auth');
-const { requireProject } = require('../_lib/access');
-const { json, methodNotAllowed, sendError, requireAllowedOrigin } = require('../_lib/http');
-const { validIsoDate } = require('../_lib/validation');
+const { getFirebaseAdmin } = require('../../_lib/firebase');
+const { requireUser } = require('../../_lib/auth');
+const { requireProject } = require('../../_lib/access');
+const { json, methodNotAllowed, sendError, requireAllowedOrigin } = require('../../_lib/http');
+const { validIsoDate } = require('../../_lib/validation');
 
 module.exports = async function projectMetrics(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
