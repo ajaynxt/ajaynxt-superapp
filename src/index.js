@@ -404,6 +404,31 @@ async function router(request,env){
     return reply({retentionDays:RETENTION_DAYS,schedule:'Daily at 02:17 UTC',lastRuns:rows.results||[],policy:'Old imported analytics/financial records, drafts, old scheduled posts, reports, audit events and expired/revoked MCP tokens are purged. Account/workspace/project and active connection configuration is retained.'});
   }
 
+  const integrationsRoute=path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)\/integrations$/);
+  if(integrationsRoute){
+    const user=await requireUser(request,env),projectId=integrationsRoute[1],orgId=url.searchParams.get('organizationId');
+    if(!orgId)fail(400,'ORGANIZATION_ID_REQUIRED','organizationId is required.');
+    await projectAccess(db,user.uid,orgId,projectId,method==='GET'?READ:WRITE);
+    if(method==='GET'){
+      const rows=await db.prepare('SELECT id,provider,account_id,account_name,status,scopes_json,last_verified_at,last_sync_at,created_at,updated_at FROM integration_connections WHERE organization_id=? AND project_id=? ORDER BY provider').bind(orgId,projectId).all();
+      return reply({projectId,connections:(rows.results||[]).map(r=>({id:r.id,provider:r.provider,accountId:r.account_id||null,accountName:r.account_name||null,status:r.status,scopes:(()=>{try{return JSON.parse(r.scopes_json||'[]')}catch{return []}})(),lastVerifiedAt:r.last_verified_at||null,lastSyncAt:r.last_sync_at||null,updatedAt:r.updated_at||null})),note:'Only a successful official authorization/API check should be labelled connected.'});
+    }
+    if(method==='POST'){
+      const body=await bodyJson(request,16384);
+      if(body.organizationId!==orgId)fail(400,'ORGANIZATION_SCOPE_MISMATCH','Workspace does not match URL.');
+      const provider=textValue(body.provider,'Provider',80).toLowerCase().replace(/\s+/g,'_');
+      const status=textValue(body.status||'not_connected','Status',40);
+      if(!/^[a-z][a-z0-9_]{0,79}$/.test(provider))fail(400,'INVALID_PROVIDER','Provider name is invalid.');
+      if(!['not_connected','import_required','revoked'].includes(status))fail(400,'UNVERIFIED_CONNECT_STATUS','Manual status changes cannot mark an account connected or pending. Only a verified OAuth flow may do that.');
+      const prior=await db.prepare('SELECT id FROM integration_connections WHERE organization_id=? AND project_id=? AND provider=? AND account_id IS NULL LIMIT 1').bind(orgId,projectId,provider).first();
+      if(prior)await db.prepare("UPDATE integration_connections SET status=?,updated_at=CURRENT_TIMESTAMP,account_name=NULL,scopes_json='[]',last_verified_at=NULL,last_sync_at=NULL WHERE id=? AND organization_id=? AND project_id=?").bind(status,prior.id,orgId,projectId).run();
+      else await db.prepare("INSERT INTO integration_connections(id,organization_id,project_id,provider,account_name,status,scopes_json,created_by,created_at,updated_at) VALUES(?,?,?,?,'',?,'[]',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").bind(crypto.randomUUID(),orgId,projectId,provider,status,user.uid).run();
+      await audit(db,user,'integration.status_changed','integration_connection',provider,orgId);
+      return reply({updated:true,provider,status,connected:false,message:'Saved an import/disconnect note only. No external account was connected.'});
+    }
+    return methodDenied(['GET','POST']);
+  }
+
   const detail=path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)$/);
   if(detail){
     const user=await requireUser(request,env),projectId=detail[1],orgId=url.searchParams.get('organizationId');
