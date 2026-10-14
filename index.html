@@ -43,6 +43,7 @@
   <div style="display:flex;align-items:center;gap:13px"><button class="btn mobile-menu" id="mobileMenu" aria-label="Open navigation">☰</button><div class="crumb">AJAYNXT <span style="padding:0 7px;color:#b2bdcc">/</span><strong id="crumbPage">Overview</strong></div></div>
   <div class="top-actions">
     <select class="project-select" id="projectSwitcher" aria-label="Select current project"></select>
+    <button class="btn hide-mobile" id="authStatusBtn" title="Sign in to sync projects to the secure backend">Backend setup needed</button>
     <button class="btn hide-mobile" id="importTopBtn">↑ Import report</button>
     <button class="btn primary" id="createProjectTop">+ New project</button>
   </div>
@@ -66,6 +67,9 @@ let plugins=readStore(STORE.plugins,[]);
 let currentProjectId=projects[0]?projects[0].id:'diamond-restaurant';
 let currentPage='overview';
 let pendingImportSource='manual';
+let cloudMode=false;
+let cloudWorkspace=null;
+window.ajnxtHubToast=toast;
 const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',integrations:'Integrations',developer:'Developer Hub',settings:'Settings'};
 const platforms=[
  {name:'Instagram',kind:'Social',symbol:'◎',mode:'Not connected',detail:'Professional accounts; insights and publishing depend on approved permissions.'},
@@ -92,7 +96,7 @@ const platforms=[
  {name:'WhatsApp Business',kind:'Messaging',symbol:'W',mode:'Not connected',detail:'Available metrics and messaging actions require approved Business Platform access.'}
 ];
 function readStore(key,fallback){try{const x=localStorage.getItem(key);return x?JSON.parse(x):fallback}catch(e){return fallback}}
-function save(){try{localStorage.setItem(STORE.projects,JSON.stringify(projects));localStorage.setItem(STORE.rows,JSON.stringify(rows));localStorage.setItem(STORE.plugins,JSON.stringify(plugins))}catch(e){toast('Browser storage is full or unavailable. Export your data before continuing.');}}
+function save(){try{if(!cloudMode){localStorage.setItem(STORE.projects,JSON.stringify(projects));localStorage.setItem(STORE.rows,JSON.stringify(rows))}localStorage.setItem(STORE.plugins,JSON.stringify(plugins))}catch(e){toast('Browser storage is full or unavailable. Export your data before continuing.');}}
 function currentProject(){return projects.find(p=>p.id===currentProjectId)||projects[0]||DEFAULT_PROJECT}
 function projectRows(){return rows.filter(r=>r.projectId===currentProjectId)}
 function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -105,7 +109,7 @@ function metricLabel(m){return String(m||'').replace(/_/g,' ').replace(/w/g,c=>
 function currentProjectOption(){const s=document.getElementById('projectSwitcher');s.innerHTML=projects.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===currentProjectId?'selected':'')+'>'+esc(p.name)+'</option>').join('')}
 function setPage(p){if(!pages[p])return;currentPage=p;document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));document.getElementById('crumbPage').textContent=pages[p];document.getElementById('sidebar').classList.remove('open');render()}
 function header(title,desc,actions){return '<div class="page-head"><div><div class="eyebrow">AJAYNXT / '+esc(currentProject().name)+'</div><h1>'+title+'</h1><p>'+desc+'</p></div><div class="head-actions">'+(actions||'')+'</div></div>'}
-function banner(){return '<div class="status-banner"><span class="status-dot"></span><div><strong>Evidence-first mode is on.</strong> No social accounts or advertising accounts are connected in this workspace yet. Values remain blank until real platform data is authorized or actual reports are imported. Imported data is stored in this browser for this MVP.</div></div>'}
+function banner(){if(cloudMode){return '<div class="status-banner"><span class="status-dot"></span><div><strong>Secure workspace API active.</strong> Project metadata and imported observations are being read from the authenticated backend for '+esc(cloudWorkspace&&cloudWorkspace.name||'this workspace')+'. Social and ad accounts still show as disconnected until their real provider integrations are authorized. Drafts and connector notes remain browser-local in this MVP.</div></div>'}return '<div class="status-banner"><span class="status-dot"></span><div><strong>Local preview mode.</strong> Projects and imports are stored in this browser only. Sign in after Firebase is configured to use the secured server API. No social/ad account is connected, and no external sales data is invented.</div></div>'}
 function kpi(label,value,foot,icon){return '<div class="card kpi"><div class="kpi-top"><span>'+label+'</span><span class="kpi-ico">'+icon+'</span></div><div class="kpi-value">'+value+'</div><div class="kpi-foot">'+foot+'</div></div>'}
 function currentDataDays(rs){return new Set(rs.map(r=>r.date)).size}
 function uniquePlatforms(rs){return new Set(rs.map(r=>r.platform)).size}
@@ -206,7 +210,7 @@ function downloadRowsCsv(rs){const header=['date','project','platform','metric',
 function downloadReport(){const rs=projectRows();const payload={reportType:'AJAYNXT Social Hub project report',project:{id:currentProjectId,name:currentProject().name},generatedAt:new Date().toISOString(),verification:'Values are imported user-provided records and are not independently verified against source platforms.',recordCount:rs.length,latestDataDate:latestDate(rs)||null,records:rs,forecastEligibility:listForecastSeries(rs).map(s=>({platform:s.platform,metric:s.metric,eligible:true,method:'Linear trend over latest 28 consecutive daily observations; 7-day point estimate.'})),limitations:['No live platform OAuth/API connections are active in this MVP.','Forecasts are estimates, not guarantees.','Missing dates are not interpreted as zero.']};download('ajnxt-'+currentProjectId+'-report.json',JSON.stringify(payload,null,2),'application/json')}
 async function processCsv(file){try{const text=await file.text();const raw=parseCsv(text);if(raw.length<2)throw new Error('CSV has a header but no records.');const head=raw[0].map(h=>h.trim().toLowerCase());const req=['date','project','platform','metric','value'];const missing=req.filter(h=>!head.includes(h));if(missing.length)throw new Error('Missing required columns: '+missing.join(', ')+'. Download the empty template for the expected schema.');const ix={};head.forEach((h,i)=>ix[h]=i);const candidate=[];const seen=new Set();const projectByName={};projects.forEach(p=>projectByName[p.name.trim().toLowerCase()]=p);
 for(let i=1;i<raw.length;i++){const row=raw[i];if(row.length!==head.length)throw new Error('Row '+(i+1)+' has '+row.length+' cells; expected '+head.length+'.');const date=(row[ix.date]||'').trim(),pname=(row[ix.project]||'').trim(),platform=(row[ix.platform]||'').trim(),metric=(row[ix.metric]||'').trim().toLowerCase().replace(/\s+/g,'_'),valueS=(row[ix.value]||'').trim(),source=ix.source!=null?(row[ix.source]||'').trim():'CSV import';if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(new Date(date+'T00:00:00Z').getTime())||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date)throw new Error('Invalid date on row '+(i+1)+'. Use YYYY-MM-DD.');if(!pname||!projectByName[pname.toLowerCase()])throw new Error('Unknown project on row '+(i+1)+': '+pname+'. Create that project first or match its name exactly.');if(!platform||!metric)throw new Error('Platform or metric is blank on row '+(i+1)+'.');if(valueS===''||!Number.isFinite(Number(valueS))||Number(valueS)<0)throw new Error('Value must be a non-negative number on row '+(i+1)+'.');const key=projectByName[pname.toLowerCase()].id+'|||'+date+'|||'+platform.toLowerCase()+'|||'+metric;if(seen.has(key))throw new Error('Duplicate date/project/platform/metric on row '+(i+1)+'. Resolve duplicates at source before importing.');seen.add(key);candidate.push({id:'row-'+Date.now()+'-'+i,projectId:projectByName[pname.toLowerCase()].id,projectName:projectByName[pname.toLowerCase()].name,date,platform,metric,value:Number(valueS),source:source||'CSV import',importedAt:new Date().toISOString()})}
-const old=rows;const oldSeen=new Set(rows.map(r=>r.projectId+'|||'+r.date+'|||'+r.platform.toLowerCase()+'|||'+r.metric));for(const c of candidate)if(oldSeen.has(c.projectId+'|||'+c.date+'|||'+c.platform.toLowerCase()+'|||'+c.metric))throw new Error('One or more records already exist in stored data. Duplicate rows are not overwritten automatically; export/clear the project import or remove duplicates in the source file.');rows=rows.concat(candidate);save();closeModal();render();toast('Imported '+candidate.length+' real CSV record(s). Source data is user-provided and not independently verified.')}catch(e){toast(e.message||'CSV import failed.');}}
+const old=rows;const oldSeen=new Set(rows.map(r=>r.projectId+'|||'+r.date+'|||'+r.platform.toLowerCase()+'|||'+r.metric));for(const c of candidate)if(oldSeen.has(c.projectId+'|||'+c.date+'|||'+c.platform.toLowerCase()+'|||'+c.metric))throw new Error('One or more records already exist in stored data. Duplicate rows are not overwritten automatically; export/clear the project import or remove duplicates in the source file.');if(cloudMode&&window.ajnxtCloud){const projectIds=Array.from(new Set(candidate.map(c=>c.projectId)));if(projectIds.length!==1)throw new Error('For a cloud import, upload one project per CSV file.');if(candidate.length>300)throw new Error('Cloud imports are limited to 300 observations per file; split this CSV into smaller date ranges.');const projectId=projectIds[0];const payload={organizationId:cloudWorkspace.id,records:candidate.map(c=>({date:c.date,platform:c.platform,metric:c.metric,value:c.value,source:c.source||'CSV import'}))};const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(projectId)+'/imports',{method:'POST',body:payload});rows=rows.concat(candidate.map(c=>({...c,sourceVerified:false})));save();closeModal();render();toast('Uploaded '+result.imported+' record(s) to the secured backend. Source has not been independently verified.');return}rows=rows.concat(candidate);save();closeModal();render();toast('Imported '+candidate.length+' real CSV record(s). Source data is user-provided and not independently verified.')}catch(e){toast(e.message||'CSV import failed.');}}
 function templateDownload(){download('ajnxt-report-template.csv','date,project,platform,metric,value,source\n','text/csv;charset=utf-8')}
 document.getElementById('primaryNav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(b)setPage(b.dataset.page)});
 document.getElementById('pageRoot').addEventListener('click',e=>{const p=e.target.closest('[data-page-action]');if(p){setPage(p.dataset.pageAction);return}const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action,id=b.dataset.id,name=b.dataset.name;
@@ -216,7 +220,7 @@ else if(a==='choose-csv'){closeModal();document.getElementById('csvInput').click
 else if(a==='download-template')templateDownload();
 else if(a==='close-modal')closeModal();
 else if(a==='rename-project')renameProjectModal(id);
-else if(a==='open-project'){currentProjectId=id;currentDataClear();setPage('overview')}
+else if(a==='open-project'){currentProjectId=id;currentDataClear();if(cloudMode&&window.ajnxtCloud){window.ajnxtCloud.loadProjectMetrics(id).then(data=>{rows=cloudRowsFromMetrics(data,id);setPage('overview')}).catch(err=>toast(err.message||'Project data could not be loaded.'))}else setPage('overview')}
 else if(a==='project-report'){const rs=rows.filter(r=>r.projectId===id);const nm=projects.find(x=>x.id===id)?.name||id;download('ajnxt-'+id+'-report.csv',['date,project,platform,metric,value,source'].concat(rs.map(r=>[r.date,nm,r.platform,r.metric,r.value,r.source||''].map(csvCell).join(','))).join('\n'),'text/csv;charset=utf-8')}
 else if(a==='integration-details')detailsModal(name);
 else if(a==='provider-details')providerModal(name);
@@ -232,21 +236,107 @@ else if(a==='clear-imports'){if(confirm('Clear imported rows for the current pro
 else if(a==='delete-local-drafts'){if(confirm('Clear local drafts for this project?')){localStorage.removeItem('ajnxt_hub_drafts_'+currentProjectId);render();toast('Current project local drafts cleared.')}}
 });
 function currentDataClear(){/* Project context change intentionally has no destructive effects. */}
-document.getElementById('projectSwitcher').addEventListener('change',e=>{currentProjectId=e.target.value;render()});
+document.getElementById('projectSwitcher').addEventListener('change',async e=>{const nextId=e.target.value;currentProjectId=nextId;if(cloudMode&&window.ajnxtCloud){try{const data=await window.ajnxtCloud.loadProjectMetrics(nextId);rows=cloudRowsFromMetrics(data,nextId);render()}catch(err){toast(err.message||'Could not load this project from the backend.')}}else render()});
 document.getElementById('createProjectTop').addEventListener('click',newProjectModal);
 document.getElementById('importTopBtn').addEventListener('click',importHelp);
 document.getElementById('closeModal').addEventListener('click',closeModal);
 document.getElementById('modalBackdrop').addEventListener('click',e=>{if(e.target.id==='modalBackdrop')closeModal()});
 document.getElementById('mobileMenu').addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
-document.getElementById('modalContent').addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='projectForm'){const name=document.getElementById('projectName').value.trim();if(projects.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('A project with this name already exists.');return}const p={id:'project-'+Date.now().toString(36),name,type:document.getElementById('projectType').value,location:document.getElementById('projectLocation').value.trim(),createdAt:new Date().toISOString()};projects.push(p);currentProjectId=p.id;save();closeModal();setPage('overview');toast('Project created in this browser. No accounts have been connected.')}
-else if(e.target.id==='renameForm'){const p=projects.find(x=>x.id===e.target.dataset.id);if(!p)return;const newName=document.getElementById('renameName').value.trim();if(projects.some(x=>x.id!==p.id&&x.name.toLowerCase()===newName.toLowerCase())){toast('Another project already uses this name.');return}p.name=newName;p.location=document.getElementById('renameLocation').value.trim();rows.forEach(r=>{if(r.projectId===p.id)r.projectName=p.name});save();closeModal();render();toast('Project details saved locally.')}
+document.getElementById('modalContent').addEventListener('submit',async e=>{e.preventDefault();if(e.target.id==='projectForm'){const name=document.getElementById('projectName').value.trim();if(projects.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('A project with this name already exists.');return}const projectPayload={name:name,type:document.getElementById('projectType').value,location:document.getElementById('projectLocation').value.trim()};if(cloudMode&&window.ajnxtCloud){try{const result=await window.ajnxtCloud.request('/api/projects?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:projectPayload});const p=result.project;projects.push(p);currentProjectId=p.id;rows=[];save();closeModal();setPage('overview');toast('Project created in the authenticated backend. No social account was connected.')}catch(err){toast(err.message||'Could not create project on the backend.')}return}const p={id:'project-'+Date.now().toString(36),name,type:projectPayload.type,location:projectPayload.location,createdAt:new Date().toISOString()};projects.push(p);currentProjectId=p.id;save();closeModal();setPage('overview');toast('Project created in this browser. No accounts have been connected.')}
+else if(e.target.id==='renameForm'){const p=projects.find(x=>x.id===e.target.dataset.id);if(!p)return;const newName=document.getElementById('renameName').value.trim();if(projects.some(x=>x.id!==p.id&&x.name.toLowerCase()===newName.toLowerCase())){toast('Another project already uses this name.');return}const newLocation=document.getElementById('renameLocation').value.trim();if(cloudMode&&window.ajnxtCloud){try{const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(p.id)+'?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'PATCH',body:{name:newName,type:p.type||'Other',location:newLocation}});Object.assign(p,result.project);rows.forEach(r=>{if(r.projectId===p.id)r.projectName=p.name});save();closeModal();render();toast('Project changes saved to the authenticated backend.')}catch(err){toast(err.message||'Could not update project.')}return}p.name=newName;p.location=newLocation;rows.forEach(r=>{if(r.projectId===p.id)r.projectName=p.name});save();closeModal();render();toast('Project details saved locally.')}
 else if(e.target.id==='pluginForm'){const name=document.getElementById('pluginName').value.trim(),endpoint=document.getElementById('pluginEndpoint').value.trim();if(endpoint&&!/^https:\/\//i.test(endpoint)){toast('Use an HTTPS URL.');return}if(plugins.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('A connector note with that name already exists.');return}plugins.push({id:'plugin-'+Date.now().toString(36),name,type:document.getElementById('pluginType').value,endpoint,createdAt:new Date().toISOString()});save();closeModal();render();toast('Catalogue note saved locally. Connector is not active.')}
 else if(e.target.id==='draftForm'){const title=document.getElementById('draftTitle').value.trim();const platform=document.getElementById('draftPlatforms').value;const copy=document.getElementById('draftCopy').value.trim();const d=readDrafts();d.unshift({id:'draft-'+Date.now().toString(36),title,platform,copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(d));render();toast('Draft saved locally. It has not been published.')}
 });
 document.getElementById('pageRoot').addEventListener('submit',function(e){if(e.target.id!=='draftForm')return;e.preventDefault();var title=document.getElementById('draftTitle').value.trim();var platform=document.getElementById('draftPlatforms').value;var copy=document.getElementById('draftCopy').value.trim();var d=readDrafts();d.unshift({id:'draft-'+Date.now().toString(36),title:title,platform:platform,copy:copy,createdAt:new Date().toISOString()});localStorage.setItem('ajnxt_hub_drafts_'+currentProjectId,JSON.stringify(d));render();toast('Draft saved locally. It has not been published.');});
 document.getElementById('csvInput').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f)processCsv(f);e.target.value=''});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();document.getElementById('sidebar').classList.remove('open')}});
+
+function cloudRowsFromMetrics(data,projectId){const project=projects.find(p=>p.id===projectId);return (data.metrics||[]).map(r=>({id:r.id,date:r.date,platform:r.platform,metric:r.metric,value:Number(r.value),source:r.source||'Backend import',sourceVerified:r.sourceVerified===true,projectId,projectName:data.projectName||(project&&project.name)||'',importedAt:r.importedAt||new Date().toISOString()}))}
+window.addEventListener('ajnxt-cloud-ready',e=>{const d=e.detail||{};cloudMode=true;cloudWorkspace=d.workspace;projects=(d.projects||[]).map(p=>({...p}));currentProjectId=d.projectId||(projects.find(p=>p.id==='diamond-restaurant')||projects[0]||{}).id;rows=cloudRowsFromMetrics(d.metrics||{},currentProjectId);save();render();toast('Authenticated backend loaded. External social/ad integrations still need separate authorization.')});
+window.addEventListener('ajnxt-cloud-signed-out',()=>{cloudMode=false;cloudWorkspace=null;projects=readStore(STORE.projects,[DEFAULT_PROJECT]);rows=readStore(STORE.rows,[]);currentProjectId=projects[0]?projects[0].id:DEFAULT_PROJECT.id;render()});
+window.addEventListener('ajnxt-cloud-error',e=>{if(e.detail&&e.detail.message)toast(e.detail.message)});
 render();
+})();
+</script>
+<script type="module">
+const authButton = document.getElementById('authStatusBtn');
+let auth = null;
+let googleProvider = null;
+let signInWithPopupFn = null;
+let signOutFn = null;
+let onAuthStateChangedFn = null;
+let currentUser = null;
+let workspace = null;
+let cloudReady = false;
+let initError = 'Firebase Web configuration is not set for this deployment.';
+function status(text){if(authButton)authButton.textContent=text;}
+function showMessage(message){if(window.ajnxtHubToast)window.ajnxtHubToast(message);else window.alert(message);}
+async function apiRequest(path, options){
+  options=options||{};
+  if(!auth||!auth.currentUser)throw new Error('Sign in to use the secure project backend.');
+  const token=await auth.currentUser.getIdToken();
+  const headers={'Authorization':'Bearer '+token};
+  if(options.body!==undefined)headers['Content-Type']='application/json';
+  const response=await fetch(path,{method:options.method||'GET',headers,body:options.body===undefined?undefined:JSON.stringify(options.body),cache:'no-store'});
+  let result={};try{result=await response.json()}catch(e){}
+  if(!response.ok)throw new Error(result.message||('Request failed with HTTP '+response.status));
+  return result;
+}
+async function loadProjectMetrics(projectId){
+  if(!workspace)throw new Error('Workspace is not loaded yet.');
+  return apiRequest('/api/projects/'+encodeURIComponent(projectId)+'/metrics?organizationId='+encodeURIComponent(workspace.id)+'&limit=2000');
+}
+async function refreshCloud(){
+  if(!currentUser)return;
+  cloudReady=false;status('Syncing workspace…');
+  try{
+    const response=await apiRequest('/api/workspaces');
+    let activeWorkspace=(response.workspaces||[])[0];
+    if(!activeWorkspace){const created=await apiRequest('/api/workspaces',{method:'POST',body:{name:'AJAYNXT Workspace'}});activeWorkspace=created.workspace;}
+    workspace=activeWorkspace;
+    const projectResponse=await apiRequest('/api/projects?organizationId='+encodeURIComponent(workspace.id));
+    const projects=projectResponse.projects||[];
+    if(!projects.length)throw new Error('Workspace has no active projects. Create one after checking project permissions.');
+    const activeProject=projects.find(p=>p.id==='diamond-restaurant')||projects[0];
+    const metrics=await loadProjectMetrics(activeProject.id);
+    cloudReady=true;
+    status('Cloud · '+String(workspace.name||'Workspace').slice(0,20));
+    window.dispatchEvent(new CustomEvent('ajnxt-cloud-ready',{detail:{user:{uid:currentUser.uid,email:currentUser.email||null},workspace,projects,projectId:activeProject.id,metrics}}));
+  }catch(error){
+    status('Retry backend sync');
+    window.dispatchEvent(new CustomEvent('ajnxt-cloud-error',{detail:{message:'Firebase sign-in succeeded, but backend sync is not ready: '+(error.message||'Unknown error')+'. Check Firebase/Vercel server environment setup.'}}));
+  }
+}
+window.ajnxtCloud={request:apiRequest,loadProjectMetrics:loadProjectMetrics,refresh:refreshCloud,get workspace(){return workspace},get currentUser(){return currentUser},get ready(){return cloudReady}};
+if(authButton){authButton.addEventListener('click',async()=>{
+  try{
+    if(!auth){showMessage(initError+' Configure Firebase Web settings and server credentials before signing in.');return;}
+    if(currentUser&&cloudReady){await signOutFn(auth);return;}
+    if(currentUser){await refreshCloud();return;}
+    await signInWithPopupFn(auth,googleProvider);
+  }catch(error){showMessage('Account action failed: '+(error.message||'Unknown error'));}
+});}
+(async function initializeAuth(){
+  try{
+    const response=await fetch('/api/config',{cache:'no-store'});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||!data.configured){initError=data.message||'Firebase Web configuration is not set for this deployment.';status('Backend setup needed');return;}
+    const sdk='https://www.gstatic.com/firebasejs/12.19.0/';
+    const appSdk=await import(sdk+'firebase-app.js');
+    const authSdk=await import(sdk+'firebase-auth.js');
+    const app=appSdk.initializeApp(data.config);
+    auth=authSdk.getAuth(app);
+    googleProvider=new authSdk.GoogleAuthProvider();
+    signInWithPopupFn=authSdk.signInWithPopup;
+    signOutFn=authSdk.signOut;
+    onAuthStateChangedFn=authSdk.onAuthStateChanged;
+    status('Sign in to sync');
+    onAuthStateChangedFn(auth,async user=>{
+      currentUser=user||null;
+      if(!user){workspace=null;cloudReady=false;status('Sign in to sync');window.dispatchEvent(new CustomEvent('ajnxt-cloud-signed-out'));return;}
+      await refreshCloud();
+    });
+  }catch(error){initError='Firebase client setup could not initialize. Verify the web config, authorized domain and network access.';status('Backend setup needed');}
 })();
 </script>
 </body>
