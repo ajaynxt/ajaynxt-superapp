@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'ajnxt-social-hub-shell-v1';
+const CACHE_NAME = 'ajnxt-social-hub-shell-v2';
 const SHELL = ['/manifest.webmanifest', '/icons/social-hub.svg'];
 
 self.addEventListener('install', event => {
