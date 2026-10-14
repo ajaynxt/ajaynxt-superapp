@@ -243,6 +243,16 @@ function checkMcpOrigin(request,env){
   if(!allowed.has(actual))fail(403,'ORIGIN_NOT_ALLOWED','MCP client origin is not allowlisted.');
 }
 
+async function purgeOldScheduledPosts(db){
+  let total=0;
+  for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){
+    const sql="DELETE FROM scheduled_posts WHERE id IN (SELECT id FROM scheduled_posts WHERE created_at<datetime('now','-365 days') AND (status IN ('draft','published','failed','cancelled','needs_connection') OR (status='scheduled' AND scheduled_at<datetime('now','-365 days'))) LIMIT "+RETENTION_BATCH_SIZE+")";
+    const result=await db.prepare(sql).run(),deleted=Number(result.meta&&result.meta.changes||0);
+    total+=deleted;if(deleted<RETENTION_BATCH_SIZE)break;
+  }
+  return total;
+}
+
 async function runRetention(env){
   const db=env.DB,runId=crypto.randomUUID();
   await db.prepare("INSERT INTO retention_runs(id,started_at,status) VALUES(?,CURRENT_TIMESTAMP,'running')").bind(runId).run();
@@ -252,9 +262,9 @@ async function runRetention(env){
     stats.sales=await purgeOldRows(db,'sales_observations','date',"date('now','-365 days')");
     stats.costs=await purgeOldRows(db,'business_costs','date',"date('now','-365 days')");
     stats.reports=await purgeOldRows(db,'reports','generated_at');
-    stats.scheduledPosts=await purgeOldRows(db,'scheduled_posts','created_at');
-    await db.prepare("UPDATE scheduled_posts SET draft_id=NULL WHERE draft_id IN (SELECT id FROM content_drafts WHERE created_at<datetime('now','-365 days'))").run();
-    stats.drafts=await purgeOldRows(db,'content_drafts','created_at');
+    stats.scheduledPosts=await purgeOldScheduledPosts(db);
+    await db.prepare("UPDATE scheduled_posts SET draft_id=NULL WHERE draft_id IN (SELECT id FROM content_drafts WHERE updated_at<datetime('now','-365 days'))").run();
+    stats.drafts=await purgeOldRows(db,'content_drafts','updated_at');
     stats.auditEvents=await purgeOldRows(db,'audit_events','created_at');
     let expired=0;
     for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){const r=await db.prepare("DELETE FROM mcp_tokens WHERE id IN (SELECT id FROM mcp_tokens t WHERE (t.expires_at<datetime('now','-30 days') OR t.revoked_at<datetime('now','-30 days')) AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.family_id=t.id) LIMIT 250)").run(),n=Number(r.meta&&r.meta.changes||0);expired+=n;if(n<250)break;}
