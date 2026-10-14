@@ -298,6 +298,45 @@ function mcpTools() {
     return methodNotAllowed(['PATCH', 'DELETE']);
   }
 
+  const integrationRoute = path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)\/integrations$/);
+  if (integrationRoute) {
+    const user = await requireUser(request, env);
+    const projectId = integrationRoute[1];
+    const orgId = url.searchParams.get('organizationId');
+    if (!orgId) throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId is required.');
+    await projectAccess(db, user.uid, orgId, projectId, method === 'GET' ? ROLE_READ : ROLE_WRITE);
+    if (method === 'GET') {
+      const result = await db.prepare('SELECT id,provider,account_id,account_name,status,scopes_json,last_verified_at,last_sync_at,created_at,updated_at FROM integration_connections WHERE organization_id=? AND project_id=? ORDER BY provider,created_at').bind(orgId, projectId).all();
+      const connections = (result.results || []).map(row => {
+        let scopes = [];
+        try { scopes = JSON.parse(row.scopes_json || '[]'); } catch {}
+        return { id: row.id, provider: row.provider, accountId: row.account_id || null, accountName: row.account_name || null, status: row.status, scopes, lastVerifiedAt: row.last_verified_at || null, lastSyncAt: row.last_sync_at || null, createdAt: row.created_at, updatedAt: row.updated_at };
+      });
+      return json({ projectId, connections, note: 'Connection metadata is not proof of access. Status becomes connected only after an official authorization and provider API test.' });
+    }
+    if (method === 'POST') {
+      const body = await parseBody(request, 16384);
+      if (body.organizationId !== orgId) throw new ApiError(400, 'ORGANIZATION_SCOPE_MISMATCH', 'Request organization scope does not match the URL.');
+      const provider = clean(body.provider, 'Provider', 80);
+      const desiredStatus = clean(body.status || 'not_connected', 'Status', 40);
+      if (!['not_connected', 'import_required', 'revoked'].includes(desiredStatus)) {
+        throw new ApiError(400, 'UNVERIFIED_CONNECT_STATUS', 'The app cannot mark a provider connected or pending from a manual request. Only a verified OAuth/API workflow may do that.');
+      }
+      const providerKey = provider.toLowerCase().replace(/\s+/g, '_');
+      const existing = await db.prepare('SELECT id FROM integration_connections WHERE organization_id=? AND project_id=? AND provider=? AND account_id IS NULL LIMIT 1').bind(orgId, projectId, providerKey).first();
+      if (existing) {
+        await db.prepare('UPDATE integration_connections SET status=?,updated_at=CURRENT_TIMESTAMP,account_name=NULL,scopes_json=\'[]\',last_verified_at=NULL,last_sync_at=NULL WHERE id=? AND organization_id=? AND project_id=?')
+          .bind(desiredStatus, existing.id, orgId, projectId).run();
+      } else {
+        await db.prepare('INSERT INTO integration_connections (id,organization_id,project_id,provider,account_name,status,scopes_json,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,\'[]\',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)')
+          .bind(crypto.randomUUID(), orgId, projectId, providerKey, '', desiredStatus, user.uid).run();
+      }
+      await audit(db, user, 'integration.status_changed', 'integration_connection', providerKey, orgId);
+      return json({ updated: true, provider: providerKey, status: desiredStatus, connected: false, message: 'Saved a catalogue/import/disconnect state only. This action did not sign into or connect a third-party account.' });
+    }
+    return methodNotAllowed(['GET', 'POST']);
+  }
+
   const draftRoute = path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)\/drafts(?:\/([A-Za-z0-9_-]+))?$/);
   if (draftRoute) {
     const user = await requireUser(request, env);
