@@ -410,6 +410,135 @@ async function router(request, env) {
     }
   }
 
+  const financeRoute = path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)\/(sales|costs|financial-report)$/);
+  if (financeRoute) {
+    const user = await requireUser(request, env);
+    const projectId = financeRoute[1];
+    const kind = financeRoute[2];
+    const orgId = url.searchParams.get('organizationId');
+    if (!orgId) throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId is required.');
+    const access = await projectAccess(db, user.uid, orgId, projectId, method === 'GET' ? ROLE_READ : ROLE_WRITE);
+    const start = url.searchParams.get('startDate');
+    const end = url.searchParams.get('endDate');
+    if (start && !validDate(start)) throw new ApiError(400, 'INVALID_START_DATE', 'startDate must use YYYY-MM-DD format.');
+    if (end && !validDate(end)) throw new ApiError(400, 'INVALID_END_DATE', 'endDate must use YYYY-MM-DD format.');
+    if (start && end && start > end) throw new ApiError(400, 'INVALID_DATE_RANGE', 'startDate must be on or before endDate.');
+
+    if (kind === 'financial-report') {
+      if (method !== 'GET') return methodNotAllowed(['GET']);
+      let salesSql = "SELECT currency,SUM(value) AS total,COUNT(*) AS rows,MIN(source_verified) AS all_verified FROM sales_observations WHERE project_id=? AND metric='revenue'";
+      const salesArgs = [projectId];
+      let costsSql = 'SELECT currency,SUM(amount) AS total,COUNT(*) AS rows FROM business_costs WHERE project_id=?';
+      const costsArgs = [projectId];
+      if (start) { salesSql += ' AND date>=?'; salesArgs.push(start); costsSql += ' AND date>=?'; costsArgs.push(start); }
+      if (end) { salesSql += ' AND date<=?'; salesArgs.push(end); costsSql += ' AND date<=?'; costsArgs.push(end); }
+      salesSql += ' GROUP BY currency';
+      costsSql += ' GROUP BY currency';
+      const [salesResult, costsResult] = await Promise.all([
+        db.prepare(salesSql).bind(...salesArgs).all(),
+        db.prepare(costsSql).bind(...costsArgs).all()
+      ]);
+      const finance = new Map();
+      for (const row of salesResult.results || []) finance.set(row.currency, { currency: row.currency, reportedRevenue: Number(row.total || 0), recordedCosts: 0, revenueMinusRecordedCosts: 0, revenueRows: row.rows, allRevenueRowsVerified: row.all_verified === 1 });
+      for (const row of costsResult.results || []) {
+        const entry = finance.get(row.currency) || { currency: row.currency, reportedRevenue: 0, recordedCosts: 0, revenueRows: 0, allRevenueRowsVerified: false };
+        entry.recordedCosts = Number(row.total || 0);
+        entry.costRows = row.rows;
+        finance.set(row.currency, entry);
+      }
+      const totals = Array.from(finance.values()).map(item => ({
+        ...item,
+        revenueMinusRecordedCosts: item.reportedRevenue - item.recordedCosts,
+        label: 'Revenue minus entered costs — not net profit',
+        sourceVerified: false
+      }));
+      return json({
+        project: { id: projectId, name: access.project.name }, organizationId: orgId,
+        period: { startDate: start || null, endDate: end || null }, totals,
+        disclaimers: [
+          'This report is only a reconciliation of records entered/imported into this workspace.',
+          'It is not a net-profit calculation: tax, refunds, food/material cost, labour, rent, platform commissions and other expenses may be missing.',
+          'Revenue and costs are not independently verified unless a future official source integration explicitly confirms them.',
+          'Values are grouped by currency and are never summed across different currencies.'
+        ]
+      });
+    }
+
+    if (kind === 'sales') {
+      if (method === 'GET') {
+        let sql = 'SELECT id,date,source,metric,value,currency,source_verified,imported_at FROM sales_observations WHERE project_id=?';
+        const args = [projectId];
+        if (start) { sql += ' AND date>=?'; args.push(start); }
+        if (end) { sql += ' AND date<=?'; args.push(end); }
+        sql += ' ORDER BY date DESC LIMIT 3000';
+        const rows = await db.prepare(sql).bind(...args).all();
+        return json({ projectId, observations: (rows.results || []).map(r => ({ ...r, value: Number(r.value), sourceVerified: r.source_verified === 1 })), note: 'Imported/entered data; no marketplace account is implied to be connected.' });
+      }
+      if (method !== 'POST') return methodNotAllowed(['GET', 'POST']);
+      const body = await parseBody(request, 128 * 1024);
+      if (body.organizationId !== orgId) throw new ApiError(400, 'ORGANIZATION_SCOPE_MISMATCH', 'Request organization scope does not match the URL.');
+      if (!Array.isArray(body.records) || body.records.length < 1 || body.records.length > IMPORT_LIMIT) throw new ApiError(400, 'INVALID_RECORD_COUNT', 'Import between 1 and ' + IMPORT_LIMIT + ' sales records per request.');
+      const records = body.records.map((r, i) => {
+        if (!r || typeof r !== 'object' || Array.isArray(r) || !validDate(r.date)) throw new ApiError(400, 'INVALID_SALES_RECORD', 'Sales record ' + (i + 1) + ' needs a valid date.');
+        const source = clean(r.source, 'Sales source', 100);
+        const metric = clean(r.metric || 'revenue', 'Sales metric', 40).toLowerCase();
+        if (!['revenue', 'orders', 'refunds', 'discounts'].includes(metric)) throw new ApiError(400, 'INVALID_SALES_METRIC', 'Use revenue, orders, refunds or discounts.');
+        const value = typeof r.value === 'number' ? r.value : Number(r.value);
+        if (!Number.isFinite(value) || value < 0 || value > 1e15) throw new ApiError(400, 'INVALID_SALES_VALUE', 'Sales values must be finite and non-negative.');
+        const currency = clean(r.currency || 'INR', 'Currency', 3).toUpperCase();
+        if (!/^[A-Z]{3}$/.test(currency)) throw new ApiError(400, 'INVALID_CURRENCY', 'Currency must be a 3-letter ISO code.');
+        return { date: r.date, source, metric, value, currency };
+      });
+      const unique = new Set();
+      for (const r of records) {
+        const key = [r.date, r.source.toLowerCase(), r.metric, r.currency].join('|');
+        if (unique.has(key)) throw new ApiError(409, 'DUPLICATE_INPUT_RECORD', 'The request contains duplicate date/source/metric/currency rows.');
+        unique.add(key);
+      }
+      const statements = records.map(r => db.prepare('INSERT INTO sales_observations (id,organization_id,project_id,date,source,metric,value,currency,source_verified,imported_by,imported_at) VALUES (?,?,?,?,?,?,?,?,0,?,CURRENT_TIMESTAMP)')
+        .bind(crypto.randomUUID(), orgId, projectId, r.date, r.source, r.metric, r.value, r.currency, user.uid));
+      statements.push(db.prepare("INSERT INTO audit_events (id,organization_id,actor_uid,action,resource_type,resource_id,record_count,created_at) VALUES (?,?,?,'sales.imported','project',?,?,CURRENT_TIMESTAMP)").bind(crypto.randomUUID(), orgId, user.uid, projectId, records.length));
+      try { await db.batch(statements); }
+      catch (error) {
+        if (String(error && error.message || '').includes('UNIQUE constraint failed')) throw new ApiError(409, 'DUPLICATE_STORED_RECORD', 'Duplicate sales records are not overwritten.');
+        throw error;
+      }
+      return json({ imported: records.length, sourceVerified: false, message: 'Sales rows saved, but the source has not been independently verified.' }, 201);
+    }
+
+    if (kind === 'costs') {
+      if (method === 'GET') {
+        let sql = 'SELECT id,date,category,amount,currency,description,source,created_by,created_at FROM business_costs WHERE project_id=?';
+        const args = [projectId];
+        if (start) { sql += ' AND date>=?'; args.push(start); }
+        if (end) { sql += ' AND date<=?'; args.push(end); }
+        sql += ' ORDER BY date DESC LIMIT 3000';
+        const rows = await db.prepare(sql).bind(...args).all();
+        return json({ projectId, costs: (rows.results || []).map(r => ({ ...r, amount: Number(r.amount) })) });
+      }
+      if (method !== 'POST') return methodNotAllowed(['GET', 'POST']);
+      const body = await parseBody(request, 128 * 1024);
+      if (body.organizationId !== orgId) throw new ApiError(400, 'ORGANIZATION_SCOPE_MISMATCH', 'Request organization scope does not match the URL.');
+      if (!Array.isArray(body.records) || body.records.length < 1 || body.records.length > IMPORT_LIMIT) throw new ApiError(400, 'INVALID_RECORD_COUNT', 'Enter between 1 and ' + IMPORT_LIMIT + ' cost records per request.');
+      const records = body.records.map((r, i) => {
+        if (!r || typeof r !== 'object' || Array.isArray(r) || !validDate(r.date)) throw new ApiError(400, 'INVALID_COST_RECORD', 'Cost record ' + (i + 1) + ' needs a valid date.');
+        const category = clean(r.category, 'Cost category', 100);
+        const amount = typeof r.amount === 'number' ? r.amount : Number(r.amount);
+        if (!Number.isFinite(amount) || amount < 0 || amount > 1e15) throw new ApiError(400, 'INVALID_COST_AMOUNT', 'Cost amounts must be finite and non-negative.');
+        const currency = clean(r.currency || 'INR', 'Currency', 3).toUpperCase();
+        if (!/^[A-Z]{3}$/.test(currency)) throw new ApiError(400, 'INVALID_CURRENCY', 'Currency must be a 3-letter ISO code.');
+        const description = clean(r.description || '', 'Description', 300, false);
+        const source = clean(r.source || 'User entry', 'Cost source', 100);
+        return { date: r.date, category, amount, currency, description, source };
+      });
+      const statements = records.map(r => db.prepare('INSERT INTO business_costs (id,organization_id,project_id,date,category,amount,currency,description,source,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')
+        .bind(crypto.randomUUID(), orgId, projectId, r.date, r.category, r.amount, r.currency, r.description, r.source, user.uid));
+      statements.push(db.prepare("INSERT INTO audit_events (id,organization_id,actor_uid,action,resource_type,resource_id,record_count,created_at) VALUES (?,?,?,'costs.entered','project',?,?,CURRENT_TIMESTAMP)").bind(crypto.randomUUID(), orgId, user.uid, projectId, records.length));
+      await db.batch(statements);
+      return json({ saved: records.length, message: 'Cost rows saved. These entries have not been independently verified.' }, 201);
+    }
+  }
+
   if (path === '/api/admin/admins') {
     const user = await requireUser(request, env);
     requireSuperAdmin(user, env);
