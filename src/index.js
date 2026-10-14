@@ -216,10 +216,10 @@ async function mcpEndpoint(request,env){
   }
   return reply({jsonrpc:'2.0',id,error:{code:-32601,message:'Method not found.'}},200,{'MCP-Protocol-Version':version});
 }
-async function purgeOldRows(db,table,dateColumn){
+async function purgeOldRows(db,table,dateColumn,cutoffExpression="datetime('now','-365 days')"){
   let total=0;
   for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){
-    const sql="DELETE FROM "+table+" WHERE id IN (SELECT id FROM "+table+" WHERE "+dateColumn+"<datetime('now','-365 days') LIMIT "+RETENTION_BATCH_SIZE+")";
+    const sql="DELETE FROM "+table+" WHERE id IN (SELECT id FROM "+table+" WHERE "+dateColumn+"<"+cutoffExpression+" LIMIT "+RETENTION_BATCH_SIZE+")";
     const result=await db.prepare(sql).run(),deleted=Number(result.meta&&result.meta.changes||0);
     total+=deleted;if(deleted<RETENTION_BATCH_SIZE)break;
   }
@@ -237,11 +237,11 @@ function checkMcpOrigin(request,env){
 async function runRetention(env){
   const db=env.DB,runId=crypto.randomUUID();
   await db.prepare("INSERT INTO retention_runs(id,started_at,status) VALUES(?,CURRENT_TIMESTAMP,'running')").bind(runId).run();
-  const stats={metrics:0,sales:0,costs:0,reports:0,drafts:0,scheduledPosts:0,auditEvents:0,expiredMcpTokens:0};
+  const stats={metrics:0,sales:0,costs:0,reports:0,drafts:0,scheduledPosts:0,auditEvents:0,expiredMcpTokens:0,oauthRecords:0};
   try{
-    stats.metrics=await purgeOldRows(db,'metrics','imported_at');
-    stats.sales=await purgeOldRows(db,'sales_observations','imported_at');
-    stats.costs=await purgeOldRows(db,'business_costs','created_at');
+    stats.metrics=await purgeOldRows(db,'metrics','date',"date('now','-365 days')");
+    stats.sales=await purgeOldRows(db,'sales_observations','date',"date('now','-365 days')");
+    stats.costs=await purgeOldRows(db,'business_costs','date',"date('now','-365 days')");
     stats.reports=await purgeOldRows(db,'reports','generated_at');
     stats.scheduledPosts=await purgeOldRows(db,'scheduled_posts','created_at');
     await db.prepare("UPDATE scheduled_posts SET draft_id=NULL WHERE draft_id IN (SELECT id FROM content_drafts WHERE created_at<datetime('now','-365 days'))").run();
@@ -250,14 +250,16 @@ async function runRetention(env){
     let expired=0;
     for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){const r=await db.prepare("DELETE FROM mcp_tokens WHERE id IN (SELECT id FROM mcp_tokens t WHERE (t.expires_at<datetime('now','-30 days') OR t.revoked_at<datetime('now','-30 days')) AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.family_id=t.id) LIMIT 250)").run(),n=Number(r.meta&&r.meta.changes||0);expired+=n;if(n<250)break;}
     stats.expiredMcpTokens=expired;
-    await db.prepare("DELETE FROM oauth_sessions WHERE expires_at<datetime('now','-1 day')").run();
-    await db.prepare("DELETE FROM oauth_requests WHERE expires_at<datetime('now','-1 day')").run();
-    await db.prepare("DELETE FROM oauth_codes WHERE expires_at<datetime('now','-1 day') OR used_at<datetime('now','-365 days')").run();
-    await db.prepare("DELETE FROM oauth_refresh_tokens WHERE expires_at<datetime('now','-30 days') OR revoked_at<datetime('now','-30 days')").run();
+    for(const [table,sql] of [
+      ['sessions',"DELETE FROM oauth_sessions WHERE expires_at<datetime('now','-1 day')"],
+      ['requests',"DELETE FROM oauth_requests WHERE expires_at<datetime('now','-1 day')"],
+      ['codes',"DELETE FROM oauth_codes WHERE expires_at<datetime('now','-1 day') OR used_at<datetime('now','-365 days')"],
+      ['refresh',"DELETE FROM oauth_refresh_tokens WHERE expires_at<datetime('now','-30 days') OR revoked_at<datetime('now','-30 days')"]
+    ]){const removed=await db.prepare(sql).run();stats.oauthRecords+=Number(removed.meta&&removed.meta.changes||0);}
     // Remove stale connection catalog entries only if disconnected for more than a year.
     await db.prepare("DELETE FROM integration_connections WHERE status IN ('revoked','not_connected','import_required','error') AND updated_at<datetime('now','-365 days')").run();
-    await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,status='complete' WHERE id=?")
-      .bind(stats.metrics,stats.sales,stats.costs,stats.reports,stats.drafts,stats.scheduledPosts,stats.auditEvents,stats.expiredMcpTokens,runId).run();
+    await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,deleted_oauth_records=?,status='complete' WHERE id=?")
+      .bind(stats.metrics,stats.sales,stats.costs,stats.reports,stats.drafts,stats.scheduledPosts,stats.auditEvents,stats.expiredMcpTokens,stats.oauthRecords,runId).run();
     await db.prepare("DELETE FROM retention_runs WHERE started_at<datetime('now','-365 days')").run();
     return {runId,stats};
   }catch(error){
@@ -296,7 +298,7 @@ function secureRedirectUri(value){
   return uri;
 }
 function oauthMeta(origin){
-  return {issuer:origin,authorization_endpoint:origin+'/oauth/authorize',token_endpoint:origin+'/oauth/token',registration_endpoint:origin+'/oauth/register',response_types_supported:['code'],response_modes_supported:['query'],grant_types_supported:['authorization_code','refresh_token'],token_endpoint_auth_methods_supported:['none','client_secret_post','client_secret_basic'],code_challenge_methods_supported:['S256'],scopes_supported:['mcp:read'],service_documentation:origin+'/docs/CLOUDFLARE-SETUP.md',resource_parameter_supported:true};
+  return {issuer:origin,authorization_endpoint:origin+'/oauth/authorize',token_endpoint:origin+'/oauth/token',registration_endpoint:origin+'/oauth/register',response_types_supported:['code'],response_modes_supported:['query'],grant_types_supported:['authorization_code','refresh_token'],token_endpoint_auth_methods_supported:['none','client_secret_post','client_secret_basic'],code_challenge_methods_supported:['S256'],scopes_supported:['mcp:read','offline_access'],service_documentation:origin+'/docs/CLOUDFLARE-SETUP.md',resource_parameter_supported:true};
 }
 function loginHtml(tx,env){
   const script='<script type="module">const tx='+JSON.stringify(tx)+';const status=document.getElementById("status");async function run(){try{const cfgRes=await fetch("/api/config",{cache:"no-store"});const cfg=await cfgRes.json();if(!cfgRes.ok||!cfg.configured)throw new Error(cfg.message||"Sign-in is not configured.");const sdk="https://www.gstatic.com/firebasejs/12.19.0/";const appSdk=await import(sdk+"firebase-app.js");const authSdk=await import(sdk+"firebase-auth.js");const app=appSdk.initializeApp(cfg.config);const auth=authSdk.getAuth(app);let stop;const current=await new Promise(resolve=>{stop=authSdk.onAuthStateChanged(auth,u=>{stop();resolve(u)})});let user=current;if(!user){const result=await authSdk.signInWithPopup(auth,new authSdk.GoogleAuthProvider());user=result.user;}const token=await user.getIdToken();const response=await fetch("/oauth/session",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({tx}),cache:"no-store"});const out=await response.json();if(!response.ok)throw new Error(out.message||"Sign-in failed.");window.location.replace("/oauth/consent?tx="+encodeURIComponent(tx));}catch(e){status.textContent=e.message||"Sign-in could not be completed.";}}document.getElementById("login").addEventListener("click",run);</script>';
@@ -328,7 +330,8 @@ async function oauthEndpoint(request,env,url){
     if(method!=='GET')return methodDenied(['GET']);
     const q=url.searchParams,clientId=q.get('client_id'),redirectUri=q.get('redirect_uri'),state=q.get('state'),challenge=q.get('code_challenge'),challengeMethod=q.get('code_challenge_method'),scope=(q.get('scope')||'').trim(),resource=q.get('resource')||origin+'/mcp';
     if(q.get('response_type')!=='code'||!state||state.length>512||!challenge||challengeMethod!=='S256')fail(400,'INVALID_AUTHORIZATION_REQUEST','Authorization requires response_type=code, state and S256 PKCE.');
-    if(scope!=='mcp:read')fail(400,'INVALID_SCOPE','Only mcp:read is available.');
+    const requestedScopes=scope.split(/\\s+/).filter(Boolean);
+    if(!requestedScopes.includes('mcp:read')||requestedScopes.some(value=>!['mcp:read','offline_access'].includes(value)))fail(400,'INVALID_SCOPE','Supported scopes are mcp:read and optional offline_access.');
     if(resource!==origin+'/mcp')fail(400,'INVALID_RESOURCE','Resource must be this server’s /mcp endpoint.');
     const client=await db.prepare("SELECT client_id,client_name,redirect_uris_json,status FROM oauth_clients WHERE client_id=? AND status='active' LIMIT 1").bind(clientId).first();
     if(!client)fail(400,'INVALID_CLIENT','OAuth client is not registered.');
