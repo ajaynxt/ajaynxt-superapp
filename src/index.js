@@ -208,6 +208,7 @@ async function router(request, env) {
     }
     if (method !== 'POST') return methodNotAllowed(['GET', 'POST']);
     requireSuperAdmin(user, env);
+    await rememberUser(db, user);
     const body = await parseBody(request, 16384);
     const name = clean(body.name || 'AJAYNXT Workspace', 'Workspace name', 100);
     const existing = await db.prepare('SELECT id FROM organizations WHERE owner_uid=? LIMIT 1').bind(user.uid).first();
@@ -423,6 +424,7 @@ async function router(request, env) {
       if (email === user.email) throw new ApiError(400, 'CANNOT_PROMOTE_OWNER', 'The Super Admin must not be created as a regular Admin ID.');
       const target = await db.prepare('SELECT uid,email,display_name FROM users WHERE email=? LIMIT 1').bind(email).first();
       if (!target) throw new ApiError(404, 'USER_NOT_REGISTERED', 'This person must sign into AJAYNXT Social Hub once before you can create their Admin ID.');
+      if (target.uid === user.uid) throw new ApiError(400, 'CANNOT_PROMOTE_OWNER', 'The Super Admin cannot be assigned a regular Admin ID.');
       const old = await db.prepare('SELECT uid,admin_id,status FROM platform_admins WHERE uid=? LIMIT 1').bind(target.uid).first();
       if (old && old.status === 'active') throw new ApiError(409, 'ADMIN_ALREADY_EXISTS', 'This user already has an active Admin ID.');
       const adminId = old ? old.admin_id : 'AJN-ADM-' + crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase();
@@ -439,7 +441,10 @@ async function router(request, env) {
       if (!uid || uid === user.uid) throw new ApiError(400, 'INVALID_ADMIN_UID', 'A different Admin UID is required.');
       const target = await db.prepare('SELECT uid,admin_id,status FROM platform_admins WHERE uid=? LIMIT 1').bind(uid).first();
       if (!target || target.status !== 'active') throw new ApiError(404, 'ADMIN_NOT_FOUND', 'Active Admin ID was not found.');
-      await db.prepare("UPDATE platform_admins SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE uid=?").bind(uid).run();
+      await db.batch([
+        db.prepare("UPDATE platform_admins SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE uid=?").bind(uid),
+        db.prepare("UPDATE org_members SET status='revoked' WHERE user_uid=? AND role='admin'").bind(uid)
+      ]);
       await audit(db, user, 'admin.revoked', 'platform_admin', uid);
       return json({ revoked: true, uid, adminId: target.admin_id });
     }
