@@ -593,6 +593,28 @@ async function router(request,env){
     }
     return methodDenied(['GET','POST','DELETE']);
   }
+  if(path==='/api/admin/oauth-clients'){
+    const user=await requireUser(request,env);requireOwner(user,env);
+    if(method==='GET'){
+      const rows=await db.prepare('SELECT client_id,client_name,redirect_uris_json,token_endpoint_auth_method,status,created_at,last_used_at,revoked_at FROM oauth_clients ORDER BY created_at DESC LIMIT 200').all();
+      return reply({clients:(rows.results||[]).map(c=>({clientId:c.client_id,name:c.client_name,redirectUris:(()=>{try{return JSON.parse(c.redirect_uris_json||'[]')}catch{return []}})(),tokenEndpointAuthMethod:c.token_endpoint_auth_method,status:c.status,createdAt:c.created_at,lastUsedAt:c.last_used_at||null,revokedAt:c.revoked_at||null})),note:'Revoking a client also revokes its access-token families and refresh tokens.'});
+    }
+    if(method==='DELETE'){
+      const clientId=url.searchParams.get('clientId');
+      if(!clientId)fail(400,'CLIENT_ID_REQUIRED','clientId is required.');
+      const client=await db.prepare('SELECT client_id,status FROM oauth_clients WHERE client_id=? LIMIT 1').bind(clientId).first();
+      if(!client||client.status!=='active')fail(404,'OAUTH_CLIENT_NOT_FOUND','Active OAuth client was not found.');
+      await db.batch([
+        db.prepare("UPDATE oauth_clients SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE client_id=?").bind(clientId),
+        db.prepare("UPDATE mcp_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id IN (SELECT DISTINCT family_id FROM oauth_refresh_tokens WHERE client_id=?)").bind(clientId),
+        db.prepare("UPDATE oauth_refresh_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE client_id=? AND status='active'").bind(clientId)
+      ]);
+      await audit(db,user,'oauth_client.revoked','oauth_client',clientId);
+      return reply({revoked:true,clientId});
+    }
+    return methodDenied(['GET','DELETE']);
+  }
+
   if(path==='/api/admin/retention'){
     const user=await requireUser(request,env);requireOwner(user,env);
     if(method!=='GET')return methodDenied(['GET']);
