@@ -278,6 +278,50 @@ async function router(request, env) {
     return methodNotAllowed(['PATCH', 'DELETE']);
   }
 
+  const draftRoute = path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)\/drafts(?:\/([A-Za-z0-9_-]+))?$/);
+  if (draftRoute) {
+    const user = await requireUser(request, env);
+    const projectId = draftRoute[1];
+    const draftId = draftRoute[2] || null;
+    const orgId = url.searchParams.get('organizationId');
+    if (!orgId) throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId is required.');
+    const access = await projectAccess(db, user.uid, orgId, projectId, method === 'GET' ? ROLE_READ : ROLE_WRITE);
+    if (!draftId && method === 'GET') {
+      const rows = await db.prepare("SELECT id,title,copy_text,platforms_json,status,created_by,created_at,updated_at FROM content_drafts WHERE organization_id=? AND project_id=? AND status<>'archived' ORDER BY updated_at DESC LIMIT 300")
+        .bind(orgId, projectId).all();
+      return json({ projectId, drafts: (rows.results || []).map(d => {
+        let platforms = [];
+        try { platforms = JSON.parse(d.platforms_json || '[]'); } catch {}
+        return { id: d.id, title: d.title, copy: d.copy_text, platform: platforms[0] || 'Instagram', platforms, status: d.status, createdBy: d.created_by, createdAt: d.created_at, updatedAt: d.updated_at };
+      }) });
+    }
+    if (!draftId && method === 'POST') {
+      const body = await parseBody(request, 32 * 1024);
+      if (body.organizationId !== orgId) throw new ApiError(400, 'ORGANIZATION_SCOPE_MISMATCH', 'Request organization scope does not match the URL.');
+      const title = clean(body.title, 'Draft title', 160);
+      const copy = clean(body.copy || '', 'Draft copy', 10000, false);
+      const platform = clean(body.platform || 'Instagram', 'Platform', 60);
+      const id = crypto.randomUUID();
+      await db.batch([
+        db.prepare("INSERT INTO content_drafts (id,organization_id,project_id,title,copy_text,platforms_json,media_refs_json,status,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,'[]','draft',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+          .bind(id, orgId, projectId, title, copy, JSON.stringify([platform]), user.uid),
+        db.prepare("INSERT INTO audit_events (id,organization_id,actor_uid,action,resource_type,resource_id,created_at) VALUES (?,?,?,'draft.created','content_draft',?,CURRENT_TIMESTAMP)")
+          .bind(crypto.randomUUID(), orgId, user.uid, id)
+      ]);
+      return json({ draft: { id, title, copy, platform, platforms: [platform], status: 'draft', createdAt: new Date().toISOString() }, published: false }, 201);
+    }
+    if (draftId && method === 'DELETE') {
+      const draft = await db.prepare("SELECT id FROM content_drafts WHERE id=? AND organization_id=? AND project_id=? AND status<>'archived' LIMIT 1").bind(draftId, orgId, projectId).first();
+      if (!draft) throw new ApiError(404, 'DRAFT_NOT_FOUND', 'Draft was not found.');
+      await db.batch([
+        db.prepare("UPDATE content_drafts SET status='archived',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=? AND project_id=?").bind(draftId, orgId, projectId),
+        db.prepare("INSERT INTO audit_events (id,organization_id,actor_uid,action,resource_type,resource_id,created_at) VALUES (?,?,?,'draft.archived','content_draft',?,CURRENT_TIMESTAMP)").bind(crypto.randomUUID(), orgId, user.uid, draftId)
+      ]);
+      return json({ archived: true, draftId });
+    }
+    return methodNotAllowed(draftId ? ['DELETE'] : ['GET', 'POST']);
+  }
+
   const metricRoute = path.match(/^\/api\/projects\/([A-Za-z0-9_-]+)\/(metrics|imports|reports)$/);
   if (metricRoute) {
     const user = await requireUser(request, env);
