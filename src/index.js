@@ -169,7 +169,7 @@ async function callMcpTool(db,token,name,args){
   args=args&&typeof args==='object'&&!Array.isArray(args)?args:{};
   const range=dateRange(new URLSearchParams({...(args.startDate?{startDate:args.startDate}:{}),...(args.endDate?{endDate:args.endDate}:{})}));
   if(name==='get_data_retention_policy'){
-    const run=await db.prepare('SELECT started_at,finished_at,status,error_code,deleted_metrics,deleted_sales,deleted_costs,deleted_reports,deleted_drafts,deleted_scheduled_posts,deleted_audit_events,deleted_expired_mcp_tokens FROM retention_runs ORDER BY started_at DESC LIMIT 1').first();
+    const run=await db.prepare('SELECT started_at,finished_at,status,error_code,deleted_metrics,deleted_sales,deleted_costs,deleted_reports,deleted_drafts,deleted_scheduled_posts,deleted_audit_events,deleted_expired_mcp_tokens,deleted_oauth_records FROM retention_runs ORDER BY started_at DESC LIMIT 1').first();
     return {retentionDays:365,dailyCleanupTimeUtc:'02:17',basis:'Observation date for metric/sales/cost rows; creation/generation timestamp for reports, drafts, scheduled posts and audit events.',deletedWhenOlderThan:['Metric observations','Sales/cost rows','Generated reports','Draft content','Old scheduled post records','Audit events'],retained:['Active workspace/project/user access configuration','Active integration configuration','Super Admin UID secret'],lastRun:run||null,warning:'Automatic cleanup is effective only after all migrations and the scheduled Worker have been deployed and a successful run has been recorded.'};
   }
   if(name==='list_projects'){
@@ -282,10 +282,12 @@ async function runRetention(env){
     ]){const removed=await db.prepare(sql).run();stats.oauthRecords+=Number(removed.meta&&removed.meta.changes||0);}
     const rateEvents=await db.prepare("DELETE FROM oauth_registration_events WHERE created_at<datetime('now','-7 days')").run();
     stats.oauthRecords+=Number(rateEvents.meta&&rateEvents.meta.changes||0);
+    const staleClients=await db.prepare("DELETE FROM oauth_clients WHERE status='revoked' AND COALESCE(revoked_at,created_at)<datetime('now','-365 days') AND NOT EXISTS (SELECT 1 FROM oauth_requests r WHERE r.client_id=oauth_clients.client_id) AND NOT EXISTS (SELECT 1 FROM oauth_codes c WHERE c.client_id=oauth_clients.client_id) AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens t WHERE t.client_id=oauth_clients.client_id)").run();
+    stats.oauthRecords+=Number(staleClients.meta&&staleClients.meta.changes||0);
     // Remove stale connection catalog entries only if disconnected for more than a year.
     await db.prepare("DELETE FROM integration_connections WHERE status IN ('revoked','not_connected','import_required','error') AND updated_at<datetime('now','-365 days')").run();
-    await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,status='complete' WHERE id=?")
-      .bind(stats.metrics,stats.sales,stats.costs,stats.reports,stats.drafts,stats.scheduledPosts,stats.auditEvents,stats.expiredMcpTokens,runId).run();
+    await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,deleted_oauth_records=?,status='complete' WHERE id=?")
+      .bind(stats.metrics,stats.sales,stats.costs,stats.reports,stats.drafts,stats.scheduledPosts,stats.auditEvents,stats.expiredMcpTokens,stats.oauthRecords,runId).run();
     await db.prepare("DELETE FROM retention_runs WHERE started_at<datetime('now','-365 days')").run();
     return {runId,stats};
   }catch(error){
@@ -650,7 +652,7 @@ async function router(request,env){
   if(path==='/api/admin/retention'){
     const user=await requireUser(request,env);requireOwner(user,env);
     if(method!=='GET')return methodDenied(['GET']);
-    const rows=await db.prepare("SELECT id,started_at,finished_at,deleted_metrics,deleted_sales,deleted_costs,deleted_reports,deleted_drafts,deleted_scheduled_posts,deleted_audit_events,deleted_expired_mcp_tokens,status,error_code FROM retention_runs ORDER BY started_at DESC LIMIT 30").all();
+    const rows=await db.prepare("SELECT id,started_at,finished_at,deleted_metrics,deleted_sales,deleted_costs,deleted_reports,deleted_drafts,deleted_scheduled_posts,deleted_audit_events,deleted_expired_mcp_tokens,deleted_oauth_records,status,error_code FROM retention_runs ORDER BY started_at DESC LIMIT 30").all();
     return reply({retentionDays:RETENTION_DAYS,schedule:'Daily at 02:17 UTC',lastRuns:rows.results||[],policy:'Old imported analytics/financial records, drafts, old scheduled posts, reports, audit events and expired/revoked MCP tokens are purged. Account/workspace/project and active connection configuration is retained.'});
   }
 
