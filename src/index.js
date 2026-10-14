@@ -186,6 +186,8 @@ async function router(request, env) {
   const method = request.method;
   const db = env.DB;
 
+  if (path === '/api/retention-policy' && method === 'GET') return json({ retentionDays: 365, dailyCleanupCron: '0 3 * * * UTC', activeProjectsAndMembershipsRetained: true, unverifiedImportsStillDeletedAtCutoff: true, note: 'Retention runs only after this Worker and migrations are deployed successfully.' });
+
   if (path === '/api/health') {
     if (method !== 'GET') return methodNotAllowed(['GET']);
     return json({ ok: true, service: 'ajnxt-social-hub-worker', backendConfigured: Boolean(env.DB && env.FIREBASE_PROJECT_ID && env.FIREBASE_API_KEY && env.FIREBASE_AUTH_DOMAIN && env.FIREBASE_APP_ID), ownerAccessConfigured: Boolean(env.AJAYNXT_SUPER_ADMIN_UID), note: 'A healthy API process does not mean social or marketplace accounts are connected.' });
@@ -624,7 +626,34 @@ async function router(request, env) {
   return json({ error: 'NOT_FOUND', message: 'Endpoint not found.' }, 404);
 }
 
+async function runRetention(env) {
+  const db = env.DB;
+  const cutoff = "date('now','-365 days')";
+  const statements = [
+    db.prepare("DELETE FROM scheduled_posts WHERE status IN ('published','failed','cancelled') AND COALESCE(published_at,scheduled_at,updated_at,created_at) < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM content_drafts WHERE updated_at < datetime('now','-365 days') AND NOT EXISTS (SELECT 1 FROM scheduled_posts WHERE scheduled_posts.draft_id=content_drafts.id)"),
+    db.prepare("DELETE FROM metrics WHERE date < date('now','-365 days')"),
+    db.prepare("DELETE FROM sales_observations WHERE date < date('now','-365 days')"),
+    db.prepare("DELETE FROM business_costs WHERE date < date('now','-365 days')"),
+    db.prepare("DELETE FROM reports WHERE generated_at < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM integration_connections WHERE status IN ('not_connected','import_required','revoked','error') AND COALESCE(last_sync_at,updated_at,created_at) < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM platform_admins WHERE status='revoked' AND COALESCE(revoked_at,created_at) < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM org_members WHERE status='revoked' AND COALESCE(revoked_at,created_at) < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM mcp_tokens WHERE status='revoked' AND COALESCE(revoked_at,created_at) < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM audit_events WHERE created_at < datetime('now','-365 days')"),
+    db.prepare("DELETE FROM retention_runs WHERE executed_at < datetime('now','-365 days')")
+  ];
+  const results = await db.batch(statements);
+  const counts = results.map((result, index) => ({ table: ['scheduled_posts','content_drafts','metrics','sales_observations','business_costs','reports','integration_connections','platform_admins','org_members','mcp_tokens','audit_events','retention_runs'][index], deleted: result && result.meta ? (result.meta.changes || 0) : 0 }));
+  await db.prepare('INSERT INTO retention_runs (id,executed_at,deleted_counts_json) VALUES (?,CURRENT_TIMESTAMP,?)')
+    .bind(crypto.randomUUID(), JSON.stringify(counts)).run();
+  return counts;
+}
+
 export default {
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(runRetention(env));
+  },
   async fetch(request, env) {
     if (!new URL(request.url).pathname.startsWith('/api/')) {
       if (env.ASSETS) return env.ASSETS.fetch(request);
