@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111318">
+<title>AJAYNXT Social Hub — Super Admin</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/social-hub.svg" type="image/svg+xml">
+<style>
+:root{color-scheme:dark;--bg:#111318;--panel:#191c24;--line:#303542;--text:#f6f7fb;--muted:#9da5b5;--accent:#9294ff;--bad:#ff8e9a;--good:#88dfb5}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% -20%,#262842 0,transparent 40%),var(--bg);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}main{max-width:1100px;margin:0 auto;padding:28px 18px 60px}.top{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:20px}.brand{font-size:20px;letter-spacing:-.03em;font-weight:750}.sub{color:var(--muted);font-size:13px}.actions{display:flex;gap:10px;flex-wrap:wrap}button,input,select{font:inherit;border-radius:10px;border:1px solid var(--line);padding:11px 13px;background:#141720;color:var(--text)}button{cursor:pointer;font-weight:650}button.primary{background:var(--accent);border-color:var(--accent);color:#101117}button.danger{color:var(--bad);border-color:#5d333b}button:disabled{opacity:.5;cursor:not-allowed}.notice{border:1px solid var(--line);padding:13px 15px;border-radius:12px;color:var(--muted);margin:20px 0}.notice strong{color:var(--text)}.status{min-height:22px;color:var(--muted);margin:10px 0 18px}.status.error{color:var(--bad)}.status.good{color:var(--good)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.panel{background:linear-gradient(145deg,#1a1d26,#161820);border:1px solid var(--line);border-radius:16px;padding:18px;min-width:0}.panel h2{font-size:17px;margin:0 0 5px}.panel p{font-size:13px;color:var(--muted);margin:0 0 16px}.form{display:flex;gap:8px;flex-wrap:wrap}.form input,.form select{flex:1;min-width:160px}.tablewrap{overflow-x:auto;margin-top:16px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:middle}th{color:var(--muted);font-weight:600}code{overflow-wrap:anywhere;color:#c3c4ff}.pill{font-size:11px;border:1px solid var(--line);border-radius:99px;padding:3px 8px;color:var(--muted)}.small{font-size:12px;color:var(--muted)}.wide{grid-column:1/-1}.hidden{display:none!important}.foot{margin-top:24px;color:var(--muted);font-size:12px}.rowtitle{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:18px 12px 40px}.panel{padding:14px}.form{flex-direction:column}.form input,.form select{min-width:0;width:100%}.form button{width:100%}.top{align-items:flex-start}}
+</style>
+</head>
+<body>
+<main>
+<header class="top">
+  <div><div class="brand">AJAYNXT <span style="color:var(--accent)">Social Hub</span></div><div class="sub">Super Admin Console · Private access control</div></div>
+  <div class="actions"><a href="/" style="color:var(--muted);align-self:center">Open Social Hub ↗</a><button id="loginBtn" class="primary">Sign in with Google</button><button id="refreshBtn" disabled>Refresh</button></div>
+</header>
+<div class="notice"><strong>Owner-only policy.</strong> Only the UID configured as <code>AJAYNXT_SUPER_ADMIN_UID</code> can create or revoke platform Admin IDs. Admins cannot create other Admins or promote themselves. People must sign into Social Hub once before you can grant them an ID. All access changes are recorded in the audit log.</div>
+<div id="status" class="status" role="status" aria-live="polite">Sign in with the Google account you configured as the platform Super Admin.</div>
+<section id="workspaceSection" class="grid hidden">
+  <article class="panel">
+    <div class="rowtitle"><h2>Platform Admin IDs</h2><span class="pill">Owner only</span></div>
+    <p>Create/revoke Admin access. This action does not grant a client access to project data unless you also add the person to a workspace.</p>
+    <form class="form" id="adminForm"><input id="adminEmail" type="email" autocomplete="email" placeholder="Existing user's email" required><button class="primary" type="submit">Create Admin ID</button></form>
+    <div id="adminsTable" class="tablewrap"></div>
+  </article>
+  <article class="panel">
+    <div class="rowtitle"><h2>Workspace Members</h2><span class="pill">Project-scoped</span></div>
+    <p>Add staff/client access to your workspace. An Admin role is available only after a platform Admin ID exists.</p>
+    <form class="form" id="memberForm">
+      <input id="memberEmail" type="email" autocomplete="email" placeholder="Existing user's email" required>
+      <select id="memberRole" aria-label="Workspace role"><option value="client_viewer">Client viewer · read only</option><option value="analyst">Analyst · reporting</option><option value="operator">Operator · content/data</option><option value="admin">Admin · project management</option></select>
+      <button class="primary" type="submit">Add member</button>
+    </form>
+    <div id="membersTable" class="tablewrap"></div>
+  </article>
+  <article class="panel wide">
+    <div class="rowtitle"><h2>Workspace details</h2><span id="workspaceRole" class="pill">—</span></div>
+    <div id="workspaceDetail" class="small">—</div>
+  </article>
+</section>
+<div class="foot">Security note: this page is a UI only; every privileged action is enforced by the server. Never share Firebase service keys or deployment secrets.</div>
+</main>
+<script type="module">
+const $ = id => document.getElementById(id);
+let auth = null, user = null, workspace = null, config = null;
+const sdk = 'https://www.gstatic.com/firebasejs/12.19.0/';
+function status(message,type=''){ $('status').textContent=message; $('status').className='status '+type; }
+async function api(path, options={}) {
+  if (!auth || !auth.currentUser) throw new Error('Sign in first.');
+  const headers={Authorization:'Bearer '+await auth.currentUser.getIdToken()};
+  if(options.body!==undefined) headers['Content-Type']='application/json';
+  const r=await fetch(path,{method:options.method||'GET',headers,body:options.body===undefined?undefined:JSON.stringify(options.body),cache:'no-store'});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.message||('Request failed ('+r.status+')'));
+  return data;
+}
+function button(label,action,danger=false){const b=document.createElement('button');b.textContent=label;b.className=danger?'danger':'';b.addEventListener('click',action);return b;}
+function renderAdmins(items){
+  const root=$('adminsTable');root.replaceChildren();
+  if(!items.length){root.textContent='No platform Admin IDs yet.';return;}
+  const table=document.createElement('table');table.innerHTML='<thead><tr><th>Admin ID</th><th>User</th><th>Status</th><th>Action</th></tr></thead>';
+  const body=document.createElement('tbody');
+  for(const item of items){
+    const tr=document.createElement('tr');
+    for(const value of [item.admin_id||item.adminId,item.email,item.status]){const td=document.createElement('td');td.textContent=value||'—';tr.appendChild(td);}
+    const action=document.createElement('td');
+    if(item.status==='active') action.appendChild(button('Revoke',async()=>{if(!confirm('Revoke Admin access for '+item.email+'?'))return;try{await api('/api/admin/admins?uid='+encodeURIComponent(item.uid),{method:'DELETE'});status('Admin access revoked.','good');await refreshAll()}catch(e){status(e.message,'error')}},true));
+    else action.textContent='—';
+    tr.appendChild(action);body.appendChild(tr);
+  }
+  table.appendChild(body);root.appendChild(table);
+}
+function renderMembers(items){
+  const root=$('membersTable');root.replaceChildren();
+  if(!items.length){root.textContent='No members returned.';return;}
+  const table=document.createElement('table');table.innerHTML='<thead><tr><th>User</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>';
+  const body=document.createElement('tbody');
+  for(const item of items){
+    const tr=document.createElement('tr');
+    for(const value of [item.email||item.uid,item.role,item.status]){const td=document.createElement('td');td.textContent=value||'—';tr.appendChild(td);}
+    const action=document.createElement('td');
+    if(item.status==='active'&&item.role!=='owner')action.appendChild(button('Remove',async()=>{if(!confirm('Remove '+(item.email||item.uid)+' from this workspace?'))return;try{await api('/api/admin/members?organizationId='+encodeURIComponent(workspace.id)+'&uid='+encodeURIComponent(item.uid),{method:'DELETE'});status('Workspace membership revoked.','good');await refreshAll()}catch(e){status(e.message,'error')}},true));
+    else action.textContent='Protected';
+    tr.appendChild(action);body.appendChild(tr);
+  }
+  table.appendChild(body);root.appendChild(table);
+}
+async function refreshAll(){
+  if(!user)return;
+  $('refreshBtn').disabled=true;
+  try{
+    let data=await api('/api/workspaces');
+    workspace=(data.workspaces||[])[0]||null;
+    if(!workspace){
+      const created=await api('/api/workspaces',{method:'POST',body:{name:'AJAYNXT Workspace'}});
+      workspace=created.workspace;
+      data=await api('/api/workspaces');
+      workspace=(data.workspaces||[])[0]||created.workspace;
+    }
+    $('workspaceSection').classList.remove('hidden');
+    $('workspaceRole').textContent=workspace.role||'owner';
+    $('workspaceDetail').textContent='Workspace: '+workspace.name+' · Workspace ID: '+workspace.id+' · Default project: Diamond Restaurant';
+    const [admins,members]=await Promise.all([
+      api('/api/admin/admins'),
+      api('/api/admin/members?organizationId='+encodeURIComponent(workspace.id))
+    ]);
+    renderAdmins(admins.admins||[]);
+    renderMembers(members.members||[]);
+    status('Signed in as '+(user.email||user.uid)+'. Owner-only API check passed.','good');
+    $('loginBtn').textContent='Sign out';
+  }catch(e){
+    $('workspaceSection').classList.add('hidden');
+    status(e.message+' If this is your own account, verify AJAYNXT_SUPER_ADMIN_UID matches your Firebase Authentication UID.', 'error');
+    $('loginBtn').textContent='Sign in with Google';
+  }finally{$('refreshBtn').disabled=false;}
+}
+$('adminForm').addEventListener('submit',async e=>{
+  e.preventDefault();const email=$('adminEmail').value.trim();
+  try{const r=await api('/api/admin/admins',{method:'POST',body:{email}});status('Created '+r.admin.adminId+' for '+r.admin.email+'.','good');$('adminEmail').value='';await refreshAll();}
+  catch(e){status(e.message,'error')}
+});
+$('memberForm').addEventListener('submit',async e=>{
+  e.preventDefault();const email=$('memberEmail').value.trim(),role=$('memberRole').value;
+  try{await api('/api/admin/members?organizationId='+encodeURIComponent(workspace.id),{method:'POST',body:{email,role}});status('Workspace access updated.','good');$('memberEmail').value='';await refreshAll();}
+  catch(e){status(e.message,'error')}
+});
+$('refreshBtn').addEventListener('click',refreshAll);
+$('loginBtn').addEventListener('click',async()=>{
+  try{if(!auth){status('Firebase sign-in is not configured. Set the Firebase web variables and reload.','error');return;}if(user){await import(sdk+'firebase-auth.js').then(m=>m.signOut(auth));return;}const m=await import(sdk+'firebase-auth.js');await m.signInWithPopup(auth,new m.GoogleAuthProvider());}
+  catch(e){status('Account action failed: '+e.message,'error')}
+});
+(async()=>{
+  try{
+    const r=await fetch('/api/config',{cache:'no-store'});config=await r.json();
+    if(!r.ok||!config.configured){status(config.message||'Firebase config is missing.','error');return;}
+    const appSdk=await import(sdk+'firebase-app.js');const authSdk=await import(sdk+'firebase-auth.js');
+    auth=authSdk.getAuth(appSdk.initializeApp(config.config));
+    authSdk.onAuthStateChanged(auth,async current=>{user=current||null;if(!user){workspace=null;$('workspaceSection').classList.add('hidden');$('loginBtn').textContent='Sign in with Google';status('Sign in with the configured Super Admin Google account.');return;}await refreshAll();});
+  }catch(e){status('Unable to initialize sign-in. Check Firebase settings and the deployed domain.','error')}
+})();
+</script>
+</body>
+</html>
