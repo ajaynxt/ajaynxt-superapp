@@ -151,11 +151,11 @@ async function requireMcpToken(request,env){
   const m=(request.headers.get('Authorization')||'').match(/^Bearer\s+(ajnxt_mcp_[A-Za-z0-9_-]{30,})$/);
   if(!m)fail(401,'MCP_TOKEN_REQUIRED','Provide the AJAYNXT read-only MCP bearer token.');
   const hash=await hashValue(m[1]);
-  const t=await env.DB.prepare("SELECT id,label,organization_id,project_id,owner_uid,status,expires_at FROM mcp_tokens WHERE token_hash=? AND status='active' AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(hash).first();
+  const t=await env.DB.prepare("SELECT id,label,organization_id,project_id,owner_uid,status,expires_at,last_used_at FROM mcp_tokens WHERE token_hash=? AND status='active' AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(hash).first();
   if(!t)fail(401,'MCP_TOKEN_INVALID','MCP token is invalid, expired or revoked.');
   await orgAccess(env.DB,t.owner_uid,t.organization_id);
   if(t.project_id)await projectAccess(env.DB,t.owner_uid,t.organization_id,t.project_id);
-  await env.DB.prepare('UPDATE mcp_tokens SET last_used_at=CURRENT_TIMESTAMP WHERE id=?').bind(t.id).run();
+  if(!t.last_used_at||Date.parse(String(t.last_used_at).replace(' ','T')+'Z')<Date.now()-5*60*1000)await env.DB.prepare("UPDATE mcp_tokens SET last_used_at=CURRENT_TIMESTAMP WHERE id=? AND (last_used_at IS NULL OR last_used_at<datetime('now','-5 minutes'))").bind(t.id).run();
   return t;
 }
 async function resolveMcpProject(db,token,args){
@@ -265,6 +265,8 @@ async function runRetention(env){
       ['codes',"DELETE FROM oauth_codes WHERE expires_at<datetime('now','-1 day') OR used_at<datetime('now','-365 days')"],
       ['refresh',"DELETE FROM oauth_refresh_tokens WHERE expires_at<datetime('now','-30 days') OR revoked_at<datetime('now','-30 days')"]
     ]){const removed=await db.prepare(sql).run();stats.oauthRecords+=Number(removed.meta&&removed.meta.changes||0);}
+    const rateEvents=await db.prepare("DELETE FROM oauth_registration_events WHERE created_at<datetime('now','-7 days')").run();
+    stats.oauthRecords+=Number(rateEvents.meta&&rateEvents.meta.changes||0);
     // Remove stale connection catalog entries only if disconnected for more than a year.
     await db.prepare("DELETE FROM integration_connections WHERE status IN ('revoked','not_connected','import_required','error') AND updated_at<datetime('now','-365 days')").run();
     await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,deleted_oauth_records=?,status='complete' WHERE id=?")
@@ -323,6 +325,12 @@ async function oauthEndpoint(request,env,url){
   const db=env.DB,path=url.pathname,method=request.method,origin=url.origin;
   if(path==='/oauth/register'){
     if(method!=='POST')return methodDenied(['POST']);
+    const ip=request.headers.get('CF-Connecting-IP')||'unknown';
+    if(!env.MCP_RATE_LIMIT_SALT)fail(503,'MCP_RATE_LIMIT_NOT_CONFIGURED','OAuth client registration is disabled until MCP_RATE_LIMIT_SALT is configured.');
+    const ipHash=await hashValue(env.MCP_RATE_LIMIT_SALT+'|'+ip);
+    const recent=await db.prepare("SELECT COUNT(*) AS total FROM oauth_registration_events WHERE ip_hash=? AND created_at>datetime('now','-1 hour')").bind(ipHash).first();
+    if(Number(recent&&recent.total||0)>=20)fail(429,'OAUTH_REGISTRATION_RATE_LIMIT','Too many OAuth client registrations from this network. Try again later.');
+    await db.prepare('INSERT INTO oauth_registration_events(id,ip_hash,created_at) VALUES(?,?,CURRENT_TIMESTAMP)').bind(crypto.randomUUID(),ipHash).run();
     const body=await bodyJson(request,32768),name=textValue(body.client_name||'Unnamed MCP client','Client name',100);
     if(!Array.isArray(body.redirect_uris)||body.redirect_uris.length<1||body.redirect_uris.length>10)fail(400,'INVALID_REDIRECT_URIS','Provide 1 to 10 exact redirect URIs.');
     const redirects=[...new Set(body.redirect_uris.map(value=>{secureRedirectUri(value);return value;}))];
