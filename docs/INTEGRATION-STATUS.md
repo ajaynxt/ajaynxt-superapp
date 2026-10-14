@@ -4,6 +4,12 @@
 
 The repository contains a provider catalogue and data model placeholders. **No third-party social network, advertising account, Google Business Profile, Swiggy, Zomato or other marketplace account is connected.** The Cloudflare Worker has not been deployed to the user's account, and no Firebase project credentials or real D1 ID were configured in this session.
 
+## AI/MCP data sharing
+
+The repository now includes a remote read-only MCP endpoint with OAuth authorization code + PKCE, dynamic client registration, workspace/project consent and eight read-only tools. The owner console can create/revoke scoped static bearer tokens and shows MCP/OAuth discovery URLs. The connection has not been tested against a deployed worker yet, because the Cloudflare database, origin and Firebase secrets are still user-setup steps. MCP reads data already stored in AJAYNXT; it does not log the app into Meta/Swiggy/Zomato or replace provider OAuth.
+
+A daily retention worker job is implemented to remove reportable observations after 365 days and expired auth records on their own shorter schedule. It only runs after a real Cloudflare deployment and database migrations.
+
 ## Integration strategy
 
 Start with one provider after the platform owner has configured/deployed the backend. For each provider, verify the official API docs, account-type eligibility, app review requirements, available scopes, current quotas, data retention terms and publishing constraints. Never scrape or bypass an API permission requirement.
