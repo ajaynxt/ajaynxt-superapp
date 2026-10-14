@@ -240,6 +240,10 @@ async function runRetention(env){
     let expired=0;
     for(let i=0;i<RETENTION_BATCHES_PER_TABLE;i++){const r=await db.prepare("DELETE FROM mcp_tokens WHERE id IN (SELECT id FROM mcp_tokens WHERE expires_at<datetime('now','-30 days') OR revoked_at<datetime('now','-30 days') LIMIT 250)").run(),n=Number(r.meta&&r.meta.changes||0);expired+=n;if(n<250)break;}
     stats.expiredMcpTokens=expired;
+    await db.prepare("DELETE FROM oauth_sessions WHERE expires_at<datetime('now','-1 day')").run();
+    await db.prepare("DELETE FROM oauth_requests WHERE expires_at<datetime('now','-1 day')").run();
+    await db.prepare("DELETE FROM oauth_codes WHERE expires_at<datetime('now','-1 day') OR used_at<datetime('now','-365 days')").run();
+    await db.prepare("DELETE FROM oauth_refresh_tokens WHERE expires_at<datetime('now','-30 days') OR revoked_at<datetime('now','-30 days')").run();
     // Remove stale connection catalog entries only if disconnected for more than a year.
     await db.prepare("DELETE FROM integration_connections WHERE status IN ('revoked','not_connected','import_required','error') AND updated_at<datetime('now','-365 days')").run();
     await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,status='complete' WHERE id=?")
@@ -252,8 +256,183 @@ async function runRetention(env){
     throw error;
   }
 }
+function htmlEscape(value){
+  return String(value==null?'':value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function htmlResponse(html,status=200,headers={}){
+  const h=new Headers(headers);h.set('Content-Type','text/html; charset=utf-8');h.set('Cache-Control','no-store, max-age=0');h.set('X-Content-Type-Options','nosniff');h.set('X-Frame-Options','DENY');h.set('Referrer-Policy','no-referrer');return new Response(html,{status,headers:h});
+}
+function sqlTime(milliseconds){return new Date(milliseconds).toISOString().replace('T',' ').slice(0,19);}
+function requestCookie(request){
+  const raw=request.headers.get('Cookie')||'',match=raw.match(/(?:^|;\s*)ajnxt_oauth_session=([A-Za-z0-9_-]+)/);
+  return match?match[1]:null;
+}
+async function oauthSession(request,db){
+  const raw=requestCookie(request);if(!raw)return null;
+  const hash=await hashValue(raw);
+  return await db.prepare("SELECT session_hash,user_uid,expires_at FROM oauth_sessions WHERE session_hash=? AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(hash).first();
+}
+async function validOAuthRequest(db,tx){
+  if(typeof tx!=='string'||!/^[A-Za-z0-9_-]{12,80}$/.test(tx))fail(400,'INVALID_OAUTH_REQUEST','OAuth transaction is invalid.');
+  const request=await db.prepare("SELECT * FROM oauth_requests WHERE id=? AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(tx).first();
+  if(!request)fail(400,'OAUTH_REQUEST_EXPIRED','The authorization request expired. Start the connection again.');
+  return request;
+}
+function secureRedirectUri(value){
+  let uri;try{uri=new URL(value);}catch{fail(400,'INVALID_REDIRECT_URI','Redirect URI must be an absolute URL.');}
+  if(uri.hash)fail(400,'INVALID_REDIRECT_URI','Redirect URI must not contain a fragment.');
+  const local=['localhost','127.0.0.1','[::1]'].includes(uri.hostname);
+  if(uri.protocol!=='https:'&&!(uri.protocol==='http:'&&local))fail(400,'INVALID_REDIRECT_URI','Redirect URI must use HTTPS, except loopback development URLs.');
+  return uri;
+}
+function oauthMeta(origin){
+  return {issuer:origin,authorization_endpoint:origin+'/oauth/authorize',token_endpoint:origin+'/oauth/token',registration_endpoint:origin+'/oauth/register',response_types_supported:['code'],response_modes_supported:['query'],grant_types_supported:['authorization_code','refresh_token'],token_endpoint_auth_methods_supported:['none','client_secret_post','client_secret_basic'],code_challenge_methods_supported:['S256'],scopes_supported:['mcp:read'],service_documentation:origin+'/docs/CLOUDFLARE-SETUP.md',resource_parameter_supported:true};
+}
+function loginHtml(tx,env){
+  const script='<script type="module">const tx='+JSON.stringify(tx)+';const status=document.getElementById("status");async function run(){try{const cfgRes=await fetch("/api/config",{cache:"no-store"});const cfg=await cfgRes.json();if(!cfgRes.ok||!cfg.configured)throw new Error(cfg.message||"Sign-in is not configured.");const sdk="https://www.gstatic.com/firebasejs/12.19.0/";const appSdk=await import(sdk+"firebase-app.js");const authSdk=await import(sdk+"firebase-auth.js");const app=appSdk.initializeApp(cfg.config);const auth=authSdk.getAuth(app);let stop;const current=await new Promise(resolve=>{stop=authSdk.onAuthStateChanged(auth,u=>{stop();resolve(u)})});let user=current;if(!user){const result=await authSdk.signInWithPopup(auth,new authSdk.GoogleAuthProvider());user=result.user;}const token=await user.getIdToken();const response=await fetch("/oauth/session",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({tx}),cache:"no-store"});const out=await response.json();if(!response.ok)throw new Error(out.message||"Sign-in failed.");window.location.replace("/oauth/consent?tx="+encodeURIComponent(tx));}catch(e){status.textContent=e.message||"Sign-in could not be completed.";}}document.getElementById("login").addEventListener("click",run);</script>';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize AJAYNXT Social Hub</title><style>body{margin:0;background:#111318;color:#f6f7fb;font:16px/1.5 system-ui;display:grid;place-items:center;min-height:100vh}.box{max-width:440px;margin:20px;padding:28px;border:1px solid #303542;border-radius:18px;background:#191c24}button{background:#9294ff;color:#101117;border:0;border-radius:10px;padding:12px 18px;font-weight:700;cursor:pointer}p{color:#a8b0bf}.note{font-size:13px}</style></head><body><main class="box"><h1>Connect AJAYNXT Social Hub</h1><p>An AI client is requesting read-only access. Sign in with Google, then choose exactly which workspace and project to share.</p><button id="login">Continue with Google</button><p class="note" id="status" role="status">Click Continue with Google to sign in.</p><p class="note">This connection cannot publish, modify settings, create Admin IDs or delete records.</p></main>'+script+'</body></html>';
+}
+function consentHtml(tx,user,workspaces,projects){
+  const wsOptions=workspaces.map(w=>'<option value="'+htmlEscape(w.id)+'">'+htmlEscape(w.name)+' · '+htmlEscape(w.role)+'</option>').join('');
+  const projectOptions=projects.map(p=>'<option data-org="'+htmlEscape(p.organization_id)+'" value="'+htmlEscape(p.id)+'">'+htmlEscape(p.name)+' · '+htmlEscape(p.organization_name)+'</option>').join('');
+  const script='<script>const org=document.getElementById("organizationId"),project=document.getElementById("projectId");function filter(){for(const op of project.options){if(!op.value){op.hidden=false;continue;}op.hidden=op.dataset.org!==org.value;}if(project.selectedOptions[0]&&project.selectedOptions[0].hidden)project.value="";}org.addEventListener("change",filter);filter();</script>';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize read-only access</title><style>body{margin:0;background:#111318;color:#f6f7fb;font:15px/1.5 system-ui;display:grid;place-items:center;min-height:100vh}.box{max-width:520px;margin:20px;padding:28px;border:1px solid #303542;border-radius:18px;background:#191c24}label{display:block;margin-top:16px;margin-bottom:6px}select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #303542;background:#141720;color:#f6f7fb}button{margin-top:15px;cursor:pointer;font-weight:700}.allow{background:#9294ff;color:#101117}.note{color:#a8b0bf;font-size:13px}</style></head><body><main class="box"><h1>Approve read-only access</h1><p>Signed in as <b>'+htmlEscape(user.email||user.uid)+'</b>.</p><p>The connected AI client can read selected project metrics, growth reports, financial summaries, connection status and draft copy. It cannot post, alter settings or delete data. It may process the data under that AI provider’s own terms.</p><form method="post" action="/oauth/consent"><input type="hidden" name="tx" value="'+htmlEscape(tx)+'"><label for="organizationId">Workspace</label><select id="organizationId" name="organizationId" required>'+wsOptions+'</select><label for="projectId">Project scope</label><select id="projectId" name="projectId"><option value="">All projects in selected workspace (read-only)</option>'+projectOptions+'</select><button class="allow" name="decision" value="allow">Approve read-only access</button><button name="decision" value="deny">Deny</button></form><p class="note">You can revoke access later in the Social Hub Admin Console. Data older than 365 days is cleaned up automatically.</p></main>'+script+'</body></html>';
+}
+async function oauthEndpoint(request,env,url){
+  const db=env.DB,path=url.pathname,method=request.method,origin=url.origin;
+  if(path==='/oauth/register'){
+    if(method!=='POST')return methodDenied(['POST']);
+    const body=await bodyJson(request,32768),name=textValue(body.client_name||'Unnamed MCP client','Client name',100);
+    if(!Array.isArray(body.redirect_uris)||body.redirect_uris.length<1||body.redirect_uris.length>10)fail(400,'INVALID_REDIRECT_URIS','Provide 1 to 10 exact redirect URIs.');
+    const redirects=[...new Set(body.redirect_uris.map(value=>{secureRedirectUri(value);return value;}))];
+    const grants=body.grant_types||['authorization_code','refresh_token'],responses=body.response_types||['code'];
+    if(!Array.isArray(grants)||!grants.includes('authorization_code')||!grants.includes('refresh_token'))fail(400,'INVALID_GRANT_TYPES','Use authorization_code and refresh_token grants.');
+    if(!Array.isArray(responses)||!responses.includes('code'))fail(400,'INVALID_RESPONSE_TYPES','Only the code response type is supported.');
+    const authMethod=body.token_endpoint_auth_method||'none';
+    if(!['none','client_secret_post','client_secret_basic'].includes(authMethod))fail(400,'INVALID_TOKEN_AUTH_METHOD','Unsupported client authentication method.');
+    const clientId='ajnxt-client-'+crypto.randomUUID().replaceAll('-',''),clientSecret=authMethod==='none'?null:'ajnxt_secret_'+randomSecret(),secretHash=clientSecret?await hashValue(clientSecret):null;
+    await db.prepare("INSERT INTO oauth_clients(client_id,client_name,redirect_uris_json,token_endpoint_auth_method,client_secret_hash,status,created_at) VALUES(?,?,?,?,?,'active',CURRENT_TIMESTAMP)").bind(clientId,name,JSON.stringify(redirects),authMethod,secretHash).run();
+    return reply({client_id:clientId,client_name:name,redirect_uris:redirects,grant_types:grants,response_types:responses,token_endpoint_auth_method:authMethod,...(clientSecret?{client_secret:clientSecret,client_secret_expires_at:0}:{})},201);
+  }
+  if(path==='/oauth/authorize'){
+    if(method!=='GET')return methodDenied(['GET']);
+    const q=url.searchParams,clientId=q.get('client_id'),redirectUri=q.get('redirect_uri'),state=q.get('state'),challenge=q.get('code_challenge'),challengeMethod=q.get('code_challenge_method'),scope=(q.get('scope')||'').trim(),resource=q.get('resource')||origin+'/mcp';
+    if(q.get('response_type')!=='code'||!state||state.length>512||!challenge||challengeMethod!=='S256')fail(400,'INVALID_AUTHORIZATION_REQUEST','Authorization requires response_type=code, state and S256 PKCE.');
+    if(scope!=='mcp:read')fail(400,'INVALID_SCOPE','Only mcp:read is available.');
+    if(resource!==origin+'/mcp')fail(400,'INVALID_RESOURCE','Resource must be this server’s /mcp endpoint.');
+    const client=await db.prepare("SELECT client_id,client_name,redirect_uris_json,status FROM oauth_clients WHERE client_id=? AND status='active' LIMIT 1").bind(clientId).first();
+    if(!client)fail(400,'INVALID_CLIENT','OAuth client is not registered.');
+    let redirects;try{redirects=JSON.parse(client.redirect_uris_json);}catch{redirects=[];}
+    if(!redirects.includes(redirectUri))fail(400,'INVALID_REDIRECT_URI','Redirect URI does not exactly match registered configuration.');
+    secureRedirectUri(redirectUri);
+    const tx=crypto.randomUUID().replaceAll('-',''),expires=sqlTime(Date.now()+10*60*1000);
+    await db.prepare("INSERT INTO oauth_requests(id,client_id,state,redirect_uri,code_challenge,code_challenge_method,scope,resource,expires_at,created_at) VALUES(?,?,?,?,?,'S256',?,?,?,CURRENT_TIMESTAMP)").bind(tx,clientId,state,redirectUri,challenge,scope,resource,expires).run();
+    const session=await oauthSession(request,db);
+    if(session){await db.prepare('UPDATE oauth_requests SET user_uid=? WHERE id=?').bind(session.user_uid,tx).run();return Response.redirect(origin+'/oauth/consent?tx='+encodeURIComponent(tx),302);}
+    return htmlResponse(loginHtml(tx,env));
+  }
+  if(path==='/oauth/session'){
+    if(method!=='POST')return methodDenied(['POST']);
+    checkOrigin(request,env);
+    const user=await requireUser(request,env),body=await bodyJson(request,4096),tx=await validOAuthRequest(db,body.tx);
+    await rememberUser(db,user);await db.prepare('UPDATE oauth_requests SET user_uid=? WHERE id=?').bind(user.uid,tx.id).run();
+    const cookie=randomSecret(),hash=await hashValue(cookie),expires=sqlTime(Date.now()+10*60*1000);
+    await db.prepare("INSERT INTO oauth_sessions(session_hash,user_uid,expires_at,created_at) VALUES(?,?,?,CURRENT_TIMESTAMP)").bind(hash,user.uid,expires).run();
+    return reply({signedIn:true},200,{'Set-Cookie':'ajnxt_oauth_session='+cookie+'; HttpOnly; SameSite=Lax; Path=/oauth; Max-Age=600'+(url.protocol==='https:'?'; Secure':'')});
+  }
+  if(path==='/oauth/consent'){
+    const txId=url.searchParams.get('tx');
+    if(method==='GET'){
+      const tx=await validOAuthRequest(db,txId),session=await oauthSession(request,db);
+      if(!session)return htmlResponse(loginHtml(tx.id,env));
+      if(tx.user_uid&&tx.user_uid!==session.user_uid)fail(403,'OAUTH_SESSION_MISMATCH','Signed-in account does not match this authorization.');
+      const [ws,projects]=await Promise.all([
+        db.prepare("SELECT o.id,o.name,m.role FROM organizations o JOIN org_members m ON m.organization_id=o.id WHERE m.user_uid=? AND m.status='active' AND o.status='active' ORDER BY o.name").bind(session.user_uid).all(),
+        db.prepare("SELECT p.id,p.name,p.organization_id,o.name organization_name FROM projects p JOIN organizations o ON o.id=p.organization_id JOIN org_members m ON m.organization_id=o.id WHERE m.user_uid=? AND m.status='active' AND p.status='active' AND o.status='active' ORDER BY o.name,p.name").bind(session.user_uid).all()
+      ]);
+      if(!(ws.results||[]).length)return htmlResponse('<!doctype html><meta charset="utf-8"><h1>No authorized workspace</h1><p>This Google account has no Social Hub workspace access.</p>',403);
+      return htmlResponse(consentHtml(tx.id,{uid:session.user_uid},ws.results,projects.results||[]));
+    }
+    if(method==='POST'){
+      checkOrigin(request,env);const session=await oauthSession(request,db);if(!session)fail(401,'OAUTH_LOGIN_REQUIRED','Sign in again to authorize.');
+      const form=await request.formData(),txId=String(form.get('tx')||''),decision=String(form.get('decision')||'deny'),orgId=String(form.get('organizationId')||''),projectId=String(form.get('projectId')||'');
+      const tx=await validOAuthRequest(db,txId);if(tx.user_uid&&tx.user_uid!==session.user_uid)fail(403,'OAUTH_SESSION_MISMATCH','Signed-in account does not match this authorization.');
+      if(decision!=='allow'){
+        await db.prepare('DELETE FROM oauth_requests WHERE id=?').bind(txId).run();
+        const denied=new URL(tx.redirect_uri);denied.searchParams.set('error','access_denied');denied.searchParams.set('error_description','The user denied read-only access.');denied.searchParams.set('state',tx.state);
+        return Response.redirect(denied.toString(),302);
+      }
+      await orgAccess(db,session.user_uid,orgId,READ);if(projectId)await projectAccess(db,session.user_uid,orgId,projectId,READ);
+      const code='ajnxt_code_'+randomSecret(),codeHash=await hashValue(code),codeId=crypto.randomUUID(),expiry=sqlTime(Date.now()+120*1000);
+      await db.prepare("INSERT INTO oauth_codes(id,code_hash,client_id,user_uid,organization_id,project_id,redirect_uri,code_challenge,scope,resource,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)").bind(codeId,codeHash,tx.client_id,session.user_uid,orgId,projectId||null,tx.redirect_uri,tx.code_challenge,tx.scope,tx.resource,expiry).run();
+      await db.prepare('DELETE FROM oauth_requests WHERE id=?').bind(txId).run();
+      const redirect=new URL(tx.redirect_uri);redirect.searchParams.set('code',code);redirect.searchParams.set('state',tx.state);
+      return new Response(null,{status:302,headers:{'Location':redirect.toString(),'Cache-Control':'no-store','Set-Cookie':'ajnxt_oauth_session=; HttpOnly; SameSite=Lax; Path=/oauth; Max-Age=0'+(url.protocol==='https:'?'; Secure':'')}});
+    }
+    return methodDenied(['GET','POST']);
+  }
+  if(path==='/oauth/token'){
+    if(method!=='POST')return methodDenied(['POST']);
+    const raw=await request.text();if(raw.length>32768)fail(413,'BODY_TOO_LARGE','Token request is too large.');
+    const form=new URLSearchParams(raw),grant=form.get('grant_type'),clientId=form.get('client_id');
+    let authClientId=clientId,clientSecret=form.get('client_secret');
+    const authHeader=request.headers.get('Authorization')||'';
+    if(authHeader.startsWith('Basic ')){try{const decoded=atob(authHeader.slice(6)),i=decoded.indexOf(':');authClientId=decoded.slice(0,i);clientSecret=decoded.slice(i+1);}catch{fail(401,'INVALID_CLIENT_AUTH','Client authentication failed.');}}
+    const client=await db.prepare("SELECT client_id,client_name,token_endpoint_auth_method,client_secret_hash,status FROM oauth_clients WHERE client_id=? AND status='active' LIMIT 1").bind(authClientId||'').first();
+    if(!client)fail(401,'INVALID_CLIENT','OAuth client is invalid or revoked.');
+    if(client.token_endpoint_auth_method==='none'){if(authHeader)fail(401,'INVALID_CLIENT_AUTH','This client uses public-client authentication.');}
+    else if(!clientSecret||!client.client_secret_hash||await hashValue(clientSecret)!==client.client_secret_hash)fail(401,'INVALID_CLIENT_AUTH','Client authentication failed.');
+    if(grant==='authorization_code'){
+      const code=form.get('code'),redirectUri=form.get('redirect_uri'),verifier=form.get('code_verifier');
+      if(!code||!redirectUri||!verifier||verifier.length<43||verifier.length>128)fail(400,'INVALID_GRANT','Code, redirect URI and PKCE verifier are required.');
+      const codeHash=await hashValue(code),authCode=await db.prepare("SELECT * FROM oauth_codes WHERE code_hash=? AND client_id=? AND redirect_uri=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(codeHash,client.client_id,redirectUri).first();
+      if(!authCode)fail(400,'INVALID_GRANT','Authorization code is expired, already used or does not match this client.');
+      const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));let binary='';for(const byte of new Uint8Array(digest))binary+=String.fromCharCode(byte);
+      const challenge=btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+      if(challenge!==authCode.code_challenge)fail(400,'INVALID_GRANT','PKCE validation failed.');
+      const consumed=await db.prepare("UPDATE oauth_codes SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP RETURNING id").bind(authCode.id).first();
+      if(!consumed)fail(400,'INVALID_GRANT','Authorization code has already been used.');
+      const access='ajnxt_mcp_'+randomSecret(),accessHash=await hashValue(access),refresh='ajnxt_refresh_'+randomSecret(),refreshHash=await hashValue(refresh),family=crypto.randomUUID(),accessExpiry=sqlTime(Date.now()+3600*1000),refreshExpiry=sqlTime(Date.now()+90*86400000);
+      await db.batch([
+        db.prepare("INSERT INTO mcp_tokens(id,token_hash,label,organization_id,project_id,owner_uid,status,expires_at,created_by,created_at) VALUES(?,?,?,?,?,?,'active',?,?,CURRENT_TIMESTAMP)").bind(family,accessHash,'OAuth: '+client.client_name.slice(0,60),authCode.organization_id,authCode.project_id,authCode.user_uid,accessExpiry,authCode.user_uid),
+        db.prepare("INSERT INTO oauth_refresh_tokens(id,token_hash,client_id,family_id,user_uid,organization_id,project_id,scope,resource,expires_at,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'active',CURRENT_TIMESTAMP)").bind(crypto.randomUUID(),refreshHash,client.client_id,family,authCode.user_uid,authCode.organization_id,authCode.project_id,authCode.scope,authCode.resource,refreshExpiry)
+      ]);
+      await db.prepare('UPDATE oauth_clients SET last_used_at=CURRENT_TIMESTAMP WHERE client_id=?').bind(client.client_id).run();
+      return reply({access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope:authCode.scope,resource:authCode.resource});
+    }
+    if(grant==='refresh_token'){
+      const rawRefresh=form.get('refresh_token');if(!rawRefresh)fail(400,'INVALID_GRANT','refresh_token is required.');
+      const hash=await hashValue(rawRefresh),old=await db.prepare("SELECT * FROM oauth_refresh_tokens WHERE token_hash=? AND client_id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP LIMIT 1").bind(hash,client.client_id).first();
+      if(!old)fail(400,'INVALID_GRANT','Refresh token is invalid, expired or already used.');
+      await orgAccess(db,old.user_uid,old.organization_id,READ);if(old.project_id)await projectAccess(db,old.user_uid,old.organization_id,old.project_id,READ);
+      const spent=await db.prepare("UPDATE oauth_refresh_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP RETURNING id").bind(old.id).first();
+      if(!spent)fail(400,'INVALID_GRANT','Refresh token was already rotated.');
+      const access='ajnxt_mcp_'+randomSecret(),accessHash=await hashValue(access),refresh='ajnxt_refresh_'+randomSecret(),refreshHash=await hashValue(refresh),accessExpiry=sqlTime(Date.now()+3600*1000),refreshExpiry=sqlTime(Date.now()+90*86400000);
+      await db.batch([
+        db.prepare("UPDATE mcp_tokens SET token_hash=?,expires_at=?,last_used_at=NULL WHERE id=? AND status='active'").bind(accessHash,accessExpiry,old.family_id),
+        db.prepare("INSERT INTO oauth_refresh_tokens(id,token_hash,client_id,family_id,user_uid,organization_id,project_id,scope,resource,expires_at,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'active',CURRENT_TIMESTAMP)").bind(crypto.randomUUID(),refreshHash,client.client_id,old.family_id,old.user_uid,old.organization_id,old.project_id,old.scope,old.resource,refreshExpiry)
+      ]);
+      return reply({access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope:old.scope,resource:old.resource});
+    }
+    fail(400,'UNSUPPORTED_GRANT','Supported grants are authorization_code and refresh_token.');
+  }
+  return null;
+}
+
 async function router(request,env){
   const url=new URL(request.url),path=url.pathname,method=request.method,db=env.DB;
+  if(path==='/.well-known/oauth-authorization-server'){
+    if(method!=='GET')return methodDenied(['GET']);
+    return reply(oauthMeta(url.origin));
+  }
+  if(path==='/.well-known/oauth-protected-resource'||path==='/.well-known/oauth-protected-resource/mcp'){
+    if(method!=='GET')return methodDenied(['GET']);
+    return reply({resource:url.origin+'/mcp',authorization_servers:[url.origin],scopes_supported:['mcp:read'],bearer_methods_supported:['header'],resource_name:'AJAYNXT Social Hub read-only MCP'});
+  }
+  if(path.startsWith('/oauth/')){
+    const oauth=await oauthEndpoint(request,env,url);
+    if(oauth)return oauth;
+  }
   if(path==='/mcp')return mcpEndpoint(request,env);
   checkOrigin(request,env);
 
@@ -549,7 +728,7 @@ async function router(request,env){
     const user=await requireUser(request,env);requireOwner(user,env);const orgId=url.searchParams.get('organizationId');if(!orgId)fail(400,'ORGANIZATION_ID_REQUIRED','organizationId is required.');await orgAccess(db,user.uid,orgId,ADMIN);
     if(method==='GET'){const r=await db.prepare('SELECT id,label,project_id,expires_at,last_used_at,status,created_at,revoked_at FROM mcp_tokens WHERE organization_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all();return reply({endpoint:new URL('/mcp',request.url).toString(),readOnly:true,defaultExpiryDays:90,tokens:r.results||[]});}
     if(method==='POST'){const body=await bodyJson(request,16384),label=textValue(body.label,'Token label',80),projectId=body.projectId?idValue(body.projectId,'projectId'):null;if(projectId)await projectAccess(db,user.uid,orgId,projectId,ADMIN);const days=Number.isInteger(body.expiresInDays)?body.expiresInDays:90;if(days<7||days>90)fail(400,'INVALID_EXPIRY','MCP tokens must expire in 7–90 days.');const secret='ajnxt_mcp_'+randomSecret(),hash=await hashValue(secret),id=crypto.randomUUID(),expires=new Date(Date.now()+days*86400000).toISOString().replace('T',' ').slice(0,19);await db.prepare("INSERT INTO mcp_tokens(id,token_hash,label,organization_id,project_id,owner_uid,status,expires_at,created_by,created_at) VALUES(?,?,?,?,?,?,'active',?,?,CURRENT_TIMESTAMP)").bind(id,hash,label,orgId,projectId,user.uid,expires,user.uid).run();await audit(db,user,'mcp_token.created','mcp_token',id,orgId);return reply({created:true,token:secret,tokenId:id,label,organizationId:orgId,projectId,endpoint:new URL('/mcp',request.url).toString(),expiresAt:expires,access:'READ_ONLY',warning:'Token is shown once; it cannot change, publish or delete data.'},201);}
-    if(method==='DELETE'){const id=url.searchParams.get('id');if(!id)fail(400,'TOKEN_ID_REQUIRED','id is required.');const t=await db.prepare("SELECT id,status FROM mcp_tokens WHERE id=? AND organization_id=?").bind(id,orgId).first();if(!t||t.status!=='active')fail(404,'TOKEN_NOT_FOUND','Active MCP token not found.');await db.prepare("UPDATE mcp_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();await audit(db,user,'mcp_token.revoked','mcp_token',id,orgId);return reply({revoked:true,tokenId:id});}
+    if(method==='DELETE'){const id=url.searchParams.get('id');if(!id)fail(400,'TOKEN_ID_REQUIRED','id is required.');const t=await db.prepare("SELECT id,status FROM mcp_tokens WHERE id=? AND organization_id=?").bind(id,orgId).first();if(!t||t.status!=='active')fail(404,'TOKEN_NOT_FOUND','Active MCP token not found.');await db.batch([db.prepare("UPDATE mcp_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(id),db.prepare("UPDATE oauth_refresh_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE family_id=? AND status='active'").bind(id)]);await audit(db,user,'mcp_token.revoked','mcp_token',id,orgId);return reply({revoked:true,tokenId:id});}
     return methodDenied(['GET','POST','DELETE']);
   }
   if(path==='/api/admin/retention'){
@@ -564,7 +743,7 @@ async function router(request,env){
 }
 export default {
   async fetch(request,env){
-    if(!new URL(request.url).pathname.startsWith('/api/')&&!new URL(request.url).pathname.startsWith('/mcp')){if(env.ASSETS)return env.ASSETS.fetch(request);return new Response('AJAYNXT Social Hub assets are not configured.',{status:503});}
+    if(!new URL(request.url).pathname.startsWith('/api/')&&!new URL(request.url).pathname.startsWith('/mcp')&&!new URL(request.url).pathname.startsWith('/oauth/')&&!new URL(request.url).pathname.startsWith('/.well-known/')){if(env.ASSETS)return env.ASSETS.fetch(request);return new Response('AJAYNXT Social Hub assets are not configured.',{status:503});}
     try{return await router(request,env);}catch(e){if(e instanceof ApiError)return reply({error:e.code,message:e.message},e.status);console.error('AJAYNXT Worker failure',{name:e&&e.name?String(e.name).slice(0,80):'Error'});return reply({error:'INTERNAL_ERROR',message:'The server could not complete this request.'},500);}
   },
   async scheduled(controller,env,ctx){ctx.waitUntil(runRetention(env).catch(()=>{}));}
