@@ -585,7 +585,10 @@ async function router(request,env){
       const id=url.searchParams.get('id');if(!id)fail(400,'TOKEN_ID_REQUIRED','id is required.');
       const token=await db.prepare("SELECT id,status FROM mcp_tokens WHERE id=? AND organization_id=? LIMIT 1").bind(id,orgId).first();
       if(!token||token.status!=='active')fail(404,'TOKEN_NOT_FOUND','Active token was not found.');
-      await db.prepare("UPDATE mcp_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+      await db.batch([
+        db.prepare("UPDATE mcp_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(id),
+        db.prepare("UPDATE oauth_refresh_tokens SET status='revoked',revoked_at=CURRENT_TIMESTAMP WHERE family_id=? AND status='active'").bind(id)
+      ]);
       await audit(db,user,'mcp_token.revoked','mcp_token',id,orgId);return reply({revoked:true,tokenId:id});
     }
     return methodDenied(['GET','POST','DELETE']);
