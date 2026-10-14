@@ -382,7 +382,7 @@ async function router(request, env) {
       });
       const prepared = await Promise.all(statements);
       prepared.push(db.prepare("INSERT INTO audit_events (id,organization_id,actor_uid,action,resource_type,resource_id,record_count,created_at) VALUES (?,?,?,'metrics.imported','project',?,?,CURRENT_TIMESTAMP)").bind(crypto.randomUUID(), orgId, user.uid, projectId, records.length));
-      try { await db.batch(prepared); } catch { throw new ApiError(409, 'IMPORT_CONFLICT', 'The import conflicted with a stored observation. Review duplicates and try again.'); }
+      try { await db.batch(prepared); } catch (error) { if (String(error && error.message || '').includes('UNIQUE constraint failed')) throw new ApiError(409, 'IMPORT_CONFLICT', 'The import conflicted with a stored observation. Review duplicates and try again.'); throw error; }
       return json({ imported: records.length, projectId, organizationId: orgId, sourceVerified: false, message: 'Imported. Source is not independently verified; missing dates are not treated as zero.' }, 201);
     }
 
