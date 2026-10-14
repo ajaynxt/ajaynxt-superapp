@@ -279,8 +279,8 @@ async function runRetention(env){
     stats.oauthRecords+=Number(rateEvents.meta&&rateEvents.meta.changes||0);
     // Remove stale connection catalog entries only if disconnected for more than a year.
     await db.prepare("DELETE FROM integration_connections WHERE status IN ('revoked','not_connected','import_required','error') AND updated_at<datetime('now','-365 days')").run();
-    await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,deleted_oauth_records=?,status='complete' WHERE id=?")
-      .bind(stats.metrics,stats.sales,stats.costs,stats.reports,stats.drafts,stats.scheduledPosts,stats.auditEvents,stats.expiredMcpTokens,stats.oauthRecords,runId).run();
+    await db.prepare("UPDATE retention_runs SET finished_at=CURRENT_TIMESTAMP,deleted_metrics=?,deleted_sales=?,deleted_costs=?,deleted_reports=?,deleted_drafts=?,deleted_scheduled_posts=?,deleted_audit_events=?,deleted_expired_mcp_tokens=?,status='complete' WHERE id=?")
+      .bind(stats.metrics,stats.sales,stats.costs,stats.reports,stats.drafts,stats.scheduledPosts,stats.auditEvents,stats.expiredMcpTokens,runId).run();
     await db.prepare("DELETE FROM retention_runs WHERE started_at<datetime('now','-365 days')").run();
     return {runId,stats};
   }catch(error){
