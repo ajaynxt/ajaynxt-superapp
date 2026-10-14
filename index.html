@@ -320,14 +320,14 @@ else if(a==='refresh-integrations'){loadProjectIntegrations(currentProjectId,tru
 else if(a==='set-import-required'||a==='clear-integration-status'){
 if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in to save project connection notes.');return;}
 const status=a==='set-import-required'?'import_required':'not_connected';
-window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/integrations?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{organizationId:cloudWorkspace.id,provider:providerKey(name),status}}).then(()=>{toast(status==='import_required'?'Saved: this source needs an actual report import.':'Connection note cleared; no external account was changed.');loadProjectIntegrations()}).catch(err=>toast(err.message||'Connection state could not be saved.'));
+window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/integrations?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{organizationId:cloudWorkspace.id,provider:providerKey(name),status}}).then(()=>{toast(status==='import_required'?'Saved: this source needs an actual report import.':'Connection note cleared; no external account was changed.');loadProjectIntegrations(currentProjectId,true)}).catch(err=>toast(err.message||'Connection state could not be saved.'));
 }
 else if(a==='refresh-mcp-tokens'){loadMcpTokens(true)}
 else if(a==='copy-mcp-endpoint'){const value=mcpEndpointUrl||((window.location.origin||'')+'/mcp');navigator.clipboard.writeText(value).then(()=>toast('MCP endpoint copied.')).catch(()=>prompt('Copy this MCP endpoint:',value))}
 else if(a==='copy-mcp-token'){const field=document.getElementById('mcpNewTokenField');if(mcpNewToken){navigator.clipboard.writeText(mcpNewToken).then(()=>toast('One-time token copied.')).catch(()=>prompt('Copy this one-time token:',mcpNewToken))}else toast('Create a token first; secret values are not stored in the token list.')}
-else if(a==='revoke-mcp-token'){if(!confirm('Revoke this read-only MCP token now? Any connected client using it will lose access.'))return;window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id)+'&id='+encodeURIComponent(id),{method:'DELETE'}).then(()=>{if(mcpNewToken){mcpNewToken=null}toast('MCP token revoked.');loadMcpTokens()}).catch(err=>toast(err.message||'Could not revoke MCP token.'))}
+else if(a==='revoke-mcp-token'){if(!confirm('Revoke this read-only MCP token now? Any connected client using it will lose access.'))return;window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id)+'&id='+encodeURIComponent(id),{method:'DELETE'}).then(()=>{if(mcpNewToken){mcpNewToken=null}toast('MCP token revoked.');loadMcpTokens(true)}).catch(err=>toast(err.message||'Could not revoke MCP token.'))}
 else if(a==='refresh-retention'){loadRetentionInfo(true)}
-else if(a==='run-retention'){if(!confirm('Run the 365-day retention cleanup now? Records older than the policy cutoff may be permanently deleted. Continue only after saving any required external backup.'))return;window.ajnxtCloud.request('/api/admin/retention/run',{method:'POST'}).then(()=>{toast('Retention job finished.');loadRetentionInfo()}).catch(err=>toast(err.message||'Retention job failed.'))}
+else if(a==='run-retention'){if(!confirm('Run the 365-day retention cleanup now? Records older than the policy cutoff may be permanently deleted. Continue only after saving any required external backup.'))return;window.ajnxtCloud.request('/api/admin/retention/run',{method:'POST'}).then(()=>{toast('Retention job finished.');loadRetentionInfo(true)}).catch(err=>toast(err.message||'Retention job failed.'))}
 else if(a==='refresh-financials'){loadFinancialSummary()}
 else if(a==='delete-plugin'){plugins=plugins.filter(x=>x.id!==id);save();render();toast('Local connector note removed. No external connection was changed.')}
 else if(a==='new-draft')draftModal();
@@ -372,7 +372,7 @@ try{
 const result=await window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{label:document.getElementById('mcpLabel').value.trim(),projectId:document.getElementById('mcpProjectScope').value||null,expiresInDays:Number(document.getElementById('mcpExpiry').value)}});
 mcpNewToken=result.token;mcpEndpointUrl=result.endpoint||((window.location.origin||'')+'/mcp');
 toast('Read-only MCP token created. Copy it now; it is shown only once.');
-await loadMcpTokens();
+await loadMcpTokens(true);
 }catch(err){toast(err.message||'MCP token could not be created.')}
 return;
 }
