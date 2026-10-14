@@ -358,7 +358,7 @@ async function oauthEndpoint(request,env,url){
     const q=url.searchParams,clientId=q.get('client_id'),redirectUri=q.get('redirect_uri'),state=q.get('state'),challenge=q.get('code_challenge'),challengeMethod=q.get('code_challenge_method'),scope=(q.get('scope')||'').trim(),resource=q.get('resource')||origin+'/mcp';
     if(q.get('response_type')!=='code'||!state||state.length>512||!challenge||challengeMethod!=='S256')fail(400,'INVALID_AUTHORIZATION_REQUEST','Authorization requires response_type=code, state and S256 PKCE.');
     const requestedScopes=scope.split(/\s+/).filter(Boolean);
-    if(!requestedScopes.includes('mcp:read')||requestedScopes.some(value=>!['mcp:read','offline_access'].includes(value)))fail(400,'INVALID_SCOPE','Supported scopes are mcp:read and optional offline_access.');
+    if(!requestedScopes.includes('mcp:read')||requestedScopes.some(value=>!['mcp:read','offline_access'].includes(value))||new Set(requestedScopes).size!==requestedScopes.length)fail(400,'INVALID_SCOPE','Supported scopes are mcp:read and optional offline_access.');
     if(resource!==origin+'/mcp')fail(400,'INVALID_RESOURCE','Resource must be this server’s /mcp endpoint.');
     const client=await db.prepare("SELECT client_id,client_name,redirect_uris_json,status FROM oauth_clients WHERE client_id=? AND status='active' LIMIT 1").bind(clientId).first();
     if(!client)fail(400,'INVALID_CLIENT','OAuth client is not registered.');
@@ -366,7 +366,7 @@ async function oauthEndpoint(request,env,url){
     if(!redirects.includes(redirectUri))fail(400,'INVALID_REDIRECT_URI','Redirect URI does not exactly match registered configuration.');
     secureRedirectUri(redirectUri);
     const tx=crypto.randomUUID().replaceAll('-',''),expires=sqlTime(Date.now()+10*60*1000);
-    await db.prepare("INSERT INTO oauth_requests(id,client_id,state,redirect_uri,code_challenge,code_challenge_method,scope,resource,expires_at,created_at) VALUES(?,?,?,?,?,'S256',?,?,?,CURRENT_TIMESTAMP)").bind(tx,clientId,state,redirectUri,challenge,scope,resource,expires).run();
+    await db.prepare("INSERT INTO oauth_requests(id,client_id,state,redirect_uri,code_challenge,code_challenge_method,scope,resource,expires_at,created_at) VALUES(?,?,?,?,?,'S256',?,?,?,CURRENT_TIMESTAMP)").bind(tx,clientId,state,redirectUri,challenge,requestedScopes.includes('offline_access')?'mcp:read offline_access':'mcp:read',resource,expires).run();
     const session=await oauthSession(request,db);
     if(session){await db.prepare('UPDATE oauth_requests SET user_uid=? WHERE id=?').bind(session.user_uid,tx).run();return Response.redirect(origin+'/oauth/consent?tx='+encodeURIComponent(tx),302);}
     return htmlResponse(loginHtml(tx,env));
