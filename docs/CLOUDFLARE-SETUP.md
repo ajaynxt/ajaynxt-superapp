@@ -128,7 +128,7 @@ Only the configured Super Admin UID can create/revoke platform Admin IDs. Other 
 
 ## 7. AI plugin / remote MCP read-only connection
 
-After the Worker is deployed with all three D1 migrations applied, the remote MCP endpoint is:
+After the Worker is deployed with all four D1 migrations applied, the remote MCP endpoint is:
 
 - MCP endpoint: https://YOUR-WORKER-HOST/mcp
 - OAuth authorization-server discovery: https://YOUR-WORKER-HOST/.well-known/oauth-authorization-server
@@ -149,6 +149,8 @@ For Gemini, Grok and other clients, compatibility depends on the client supporti
 The OAuth/MCP endpoints do not connect Meta, Instagram, Threads, YouTube, Google Ads, Swiggy or Zomato. They only allow the authorized AI client to read information already stored in the selected AJAYNXT workspace. Source accounts still need their own official authentication/API access or report imports.
 
 Optional MCP_ALLOWED_ORIGINS is a comma-separated exact-origin allowlist for MCP requests that include an Origin header. Set only origins verified for the client. Do not use a wildcard. OAuth app/server secrets are stored as hashes or Worker-side values and are not returned by /api/config.
+
+Before remote MCP OAuth clients can register, set an independent rate-limit salt as an encrypted Worker secret (this stores only an IP-derived hash, not the raw IP): generate a random value locally with `openssl rand -hex 32`, then run `npx wrangler secret put MCP_RATE_LIMIT_SALT` and paste that random value at the prompt. The OAuth registration endpoint limits each network to 20 registrations per rolling hour and deletes old rate-limit records after seven days. Never put the salt in Git.
 
 ## 8. One-year data retention
 
