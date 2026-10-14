@@ -19,7 +19,7 @@ No Supabase, Firestore, Firebase Admin SDK or Firebase Cloud Functions are neede
 
 ## Deployment status
 
-The code is in GitHub, but the platform is **not yet deployed to the owner's Cloudflare account or connected to the owner's Firebase project**. The D1 placeholder ID in wrangler.jsonc must be replaced by the real ID from Cloudflare. Firebase's web settings, the real owner UID, and the three SQL migrations must be configured/applied before login or scheduled deletion works.
+The code is in GitHub, but the platform is **not yet deployed to the owner's Cloudflare account or connected to the owner's Firebase project**. The D1 placeholder ID in wrangler.jsonc must be replaced by the real ID from Cloudflare. Firebase's web settings, the real owner UID, and all four SQL migrations must be configured/applied before login or scheduled deletion works.
 
 The older Vercel preview is only the static prototype; it does not run this Cloudflare Worker backend. Use [the Cloudflare setup guide](docs/CLOUDFLARE-SETUP.md) for the real deployment route.
 
@@ -38,7 +38,7 @@ The older Vercel preview is only the static prototype; it does not run this Clou
 
 1. Follow [Cloudflare setup](docs/CLOUDFLARE-SETUP.md).
 2. Configure Firebase Google sign-in and set AJAYNXT_SUPER_ADMIN_UID to your exact Firebase Auth UID as a Cloudflare Worker secret.
-3. Create the D1 database, replace the placeholder ID and apply migrations 0001–0003.
+3. Create the D1 database, replace the placeholder ID and apply migrations 0001–0004.
 4. Deploy Worker assets, sign in at the site, then open /admin.html to create/revoke Admin IDs and manage members.
 5. Use Integrations for official login/API links; connect each provider only when its own authorization/API test succeeds.
 6. Use the Admin Console AI/MCP panel to read the MCP endpoint/discovery URLs and manage read-only access.
