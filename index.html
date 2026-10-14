@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="theme-color" content="#111318">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/social-hub.svg" type="image/svg+xml">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#f4f7fb">
 <title>AJAYNXT Social Hub — Project Intelligence</title>
@@ -338,6 +341,11 @@ if(authButton){authButton.addEventListener('click',async()=>{
     });
   }catch(error){initError='Firebase client setup could not initialize. Verify the web config, authorized domain and network access.';status('Backend setup needed');}
 })();
+</script>
+<script>
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
 </script>
 </body>
 </html>
