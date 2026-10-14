@@ -484,7 +484,7 @@ if(authButton){authButton.addEventListener('click',async()=>{
     const response=await fetch('/api/config',{cache:'no-store'});
     const data=await response.json().catch(()=>({}));
     if(!response.ok||!data.configured){initError=data.message||'Firebase Web configuration is not set for this deployment.';status('Backend setup needed');return;}
-    const sdk='https://www.gstatic.com/firebasejs/12.19.0/';
+    const sdk='https://www.gstatic.com/firebasejs/13.0.0/';
     const appSdk=await import(sdk+'firebase-app.js');
     const authSdk=await import(sdk+'firebase-auth.js');
     const app=appSdk.initializeApp(data.config);
