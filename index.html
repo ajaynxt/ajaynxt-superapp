@@ -80,9 +80,12 @@ let cloudDrafts=[];
 let cloudDraftProjectId=null;
 let mcpTokens=[];
 let cloudIntegrations=[];
+let cloudIntegrationsProjectId=null;
 let mcpNewToken=null;
 let mcpEndpointUrl='';
+let mcpLoadedWorkspaceId=null;
 let retentionSnapshot=null;
+let retentionLoaded=false;
 window.ajnxtHubToast=toast;
 const pages={overview:'Overview',projects:'Projects',content:'Content Studio',calendar:'Publishing Calendar',analytics:'Analytics & Growth',reports:'Reports',financials:'Financials',integrations:'Integrations',developer:'Developer Hub',mcp:'AI Read Plugin',privacy:'Data Retention',settings:'Settings'};
 const platforms=[
@@ -203,10 +206,11 @@ kinds.map(kind=>'<div style="margin:18px 0 10px;display:flex;align-items:center;
 (plugins.length?'<div style="margin:22px 0 10px;display:flex;align-items:center;justify-content:space-between"><h2 style="font-size:14px;margin:0">Developer-added connectors</h2><span class="pill">'+plugins.length+'</span></div><div class="grid integration-grid">'+plugins.map(p=>'<div class="card integration-card"><div class="integration-top"><div class="integration-identity"><div class="integration-logo">⌘</div><div><div class="integration-name">'+esc(p.name)+'</div><div class="integration-kind">'+esc(p.type)+'</div></div></div><span class="pill amber">Catalogue only</span></div><p>'+esc(p.endpoint||'No endpoint supplied')+'</p><div class="integration-bottom"><span style="font-size:10px;color:var(--muted)">Not executed/connected</span><button class="btn small" data-action="delete-plugin" data-id="'+esc(p.id)+'">Remove</button></div></div>').join('')+'</div>':'')+
 '<div class="footer-note">Swiggy Partner portal: report exports may be required. Zomato publishes a POS integration API, but that does not guarantee restaurant analytics API access. Platform API scopes, application approval and report freshness must be verified individually.</div>';
 }
-async function loadProjectIntegrations(projectId=currentProjectId){
+async function loadProjectIntegrations(projectId=currentProjectId,force=false){
 if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace)return;
-try{const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(projectId)+'/integrations?organizationId='+encodeURIComponent(cloudWorkspace.id));cloudIntegrations=result.connections||[];if(currentPage==='integrations')render();}
-catch(error){if(currentPage==='integrations')toast(error.message||'Connection states could not be loaded.');}
+if(!force&&cloudIntegrationsProjectId===projectId)return;
+try{const result=await window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(projectId)+'/integrations?organizationId='+encodeURIComponent(cloudWorkspace.id));cloudIntegrations=result.connections||[];cloudIntegrationsProjectId=projectId;if(currentPage==='integrations')render();}
+catch(error){cloudIntegrationsProjectId=projectId;if(currentPage==='integrations')toast(error.message||'Connection states could not be loaded.');}
 }
 function renderDeveloper(){return header('Developer Hub','Prepare connector registrations and AI provider requirements. Adding an entry here does not execute code or establish a connection.','<button class="btn primary" data-action="new-plugin">+ Register connector</button>')+
 '<div class="status-banner"><span class="status-dot"></span><div><strong>Safe by default.</strong> Never paste API secrets into this catalogue. The production version must store credentials in a secure server-side secret store, validate OAuth callbacks, scope permissions and audit tool actions.</div></div>'+
@@ -257,10 +261,11 @@ return header('AI Read Plugin','Give an AI/MCP client permission to read one pro
 '</div></div><div class="card wide"><div class="card-head"><div><h2>Issued tokens</h2><p>Revoke access immediately if a key is exposed or no longer needed.</p></div></div><div class="card-body">'+tokenRows+'</div></div></div>'+
 '<div class="footer-note">Access tokens grant read-only access within their workspace/project scope. They expire within 30–90 days. Do not enable broad workspace scope unless the AI client needs it.</div>';
 }
-async function loadMcpTokens(){
+async function loadMcpTokens(force=false){
 if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace)return;
-try{const result=await window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id));mcpTokens=result.tokens||[];mcpEndpointUrl=result.endpoint||((window.location.origin||'')+'/mcp');if(currentPage==='mcp')render();}
-catch(error){mcpTokens=[];if(currentPage==='mcp')toast(error.message||'MCP token list needs Super Admin access.');}
+if(!force&&mcpLoadedWorkspaceId===cloudWorkspace.id)return;
+try{const result=await window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id));mcpTokens=result.tokens||[];mcpEndpointUrl=result.endpoint||((window.location.origin||'')+'/mcp');mcpLoadedWorkspaceId=cloudWorkspace.id;if(currentPage==='mcp')render();}
+catch(error){mcpTokens=[];mcpLoadedWorkspaceId=cloudWorkspace.id;if(currentPage==='mcp')toast(error.message||'MCP token list needs Super Admin access.');}
 }
 function renderPrivacy(){
 const runs=retentionSnapshot&&retentionSnapshot.lastRuns||[];
@@ -270,10 +275,11 @@ return header('Data Retention','Automatically remove historical reporting data a
 '<div class="card"><div class="card-head"><div><h2>What is not automatically removed?</h2></div></div><div class="card-body"><p>Active user identity/access records, workspaces, projects, the Super Admin setting, and active account connection metadata remain until you revoke or delete them. Provider tokens should be revoked immediately when disconnecting; current code does not yet store social OAuth tokens.</p><p class="muted">A cleanup run log records counts/status, not the deleted report contents.</p></div></div>'+
 '<div class="card wide"><div class="card-head"><div><h2>Last cleanup runs</h2><p>Runs are listed only after the deployment returns its run log.</p></div></div><div class="card-body">'+(runs.length?'<div class="table-wrap"><table><thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Metrics</th><th>Sales</th><th>Costs</th><th>Reports</th><th>Drafts</th><th>Errors</th></tr></thead><tbody>'+runs.map(r=>'<tr><td>'+esc(r.started_at||'—')+'</td><td>'+esc(r.finished_at||'—')+'</td><td>'+esc(r.status||'—')+'</td><td>'+num(r.deleted_metrics||0)+'</td><td>'+num(r.deleted_sales||0)+'</td><td>'+num(r.deleted_costs||0)+'</td><td>'+num(r.deleted_reports||0)+'</td><td>'+num(r.deleted_drafts||0)+'</td><td>'+esc(r.error_code||'—')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="muted">'+(cloudMode?'No cleanup run is recorded yet.':'Sign in on the deployed service to read retention status.')+'</p>')+'</div></div></div>';
 }
-async function loadRetentionInfo(){
+async function loadRetentionInfo(force=false){
 if(!cloudMode||!window.ajnxtCloud)return;
-try{retentionSnapshot=await window.ajnxtCloud.request('/api/admin/retention');if(currentPage==='privacy')render();}
-catch(error){retentionSnapshot=null;if(currentPage==='privacy')toast(error.message||'Retention status could not be loaded.');}
+if(!force&&retentionLoaded)return;
+try{retentionSnapshot=await window.ajnxtCloud.request('/api/admin/retention');retentionLoaded=true;if(currentPage==='privacy')render();}
+catch(error){retentionSnapshot=null;retentionLoaded=true;if(currentPage==='privacy')toast(error.message||'Retention status could not be loaded.');}
 }
 
 function renderSettings(){return header('Settings','Review the current browser-only MVP state and export or clear locally stored data.','<button class="btn" data-action="export-backup">Export local backup</button>')+
@@ -310,17 +316,17 @@ else if(a==='project-report'){const rs=rows.filter(r=>r.projectId===id);const nm
 else if(a==='integration-details')detailsModal(name);
 else if(a==='provider-details')providerModal(name);
 else if(a==='new-plugin')pluginModal();
-else if(a==='refresh-integrations'){loadProjectIntegrations()}
+else if(a==='refresh-integrations'){loadProjectIntegrations(currentProjectId,true)}
 else if(a==='set-import-required'||a==='clear-integration-status'){
 if(!cloudMode||!window.ajnxtCloud||!cloudWorkspace){toast('Sign in to save project connection notes.');return;}
 const status=a==='set-import-required'?'import_required':'not_connected';
 window.ajnxtCloud.request('/api/projects/'+encodeURIComponent(currentProjectId)+'/integrations?organizationId='+encodeURIComponent(cloudWorkspace.id),{method:'POST',body:{organizationId:cloudWorkspace.id,provider:providerKey(name),status}}).then(()=>{toast(status==='import_required'?'Saved: this source needs an actual report import.':'Connection note cleared; no external account was changed.');loadProjectIntegrations()}).catch(err=>toast(err.message||'Connection state could not be saved.'));
 }
-else if(a==='refresh-mcp-tokens'){loadMcpTokens()}
+else if(a==='refresh-mcp-tokens'){loadMcpTokens(true)}
 else if(a==='copy-mcp-endpoint'){const value=mcpEndpointUrl||((window.location.origin||'')+'/mcp');navigator.clipboard.writeText(value).then(()=>toast('MCP endpoint copied.')).catch(()=>prompt('Copy this MCP endpoint:',value))}
 else if(a==='copy-mcp-token'){const field=document.getElementById('mcpNewTokenField');if(mcpNewToken){navigator.clipboard.writeText(mcpNewToken).then(()=>toast('One-time token copied.')).catch(()=>prompt('Copy this one-time token:',mcpNewToken))}else toast('Create a token first; secret values are not stored in the token list.')}
 else if(a==='revoke-mcp-token'){if(!confirm('Revoke this read-only MCP token now? Any connected client using it will lose access.'))return;window.ajnxtCloud.request('/api/admin/mcp-tokens?organizationId='+encodeURIComponent(cloudWorkspace.id)+'&id='+encodeURIComponent(id),{method:'DELETE'}).then(()=>{if(mcpNewToken){mcpNewToken=null}toast('MCP token revoked.');loadMcpTokens()}).catch(err=>toast(err.message||'Could not revoke MCP token.'))}
-else if(a==='refresh-retention'){loadRetentionInfo()}
+else if(a==='refresh-retention'){loadRetentionInfo(true)}
 else if(a==='run-retention'){if(!confirm('Run the 365-day retention cleanup now? Records older than the policy cutoff may be permanently deleted. Continue only after saving any required external backup.'))return;window.ajnxtCloud.request('/api/admin/retention/run',{method:'POST'}).then(()=>{toast('Retention job finished.');loadRetentionInfo()}).catch(err=>toast(err.message||'Retention job failed.'))}
 else if(a==='refresh-financials'){loadFinancialSummary()}
 else if(a==='delete-plugin'){plugins=plugins.filter(x=>x.id!==id);save();render();toast('Local connector note removed. No external connection was changed.')}
@@ -391,7 +397,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();docume
 
 function cloudRowsFromMetrics(data,projectId){const project=projects.find(p=>p.id===projectId);return (data.metrics||[]).map(r=>({id:r.id,date:r.date,platform:r.platform,metric:r.metric,value:Number(r.value),source:r.source||'Backend import',sourceVerified:r.sourceVerified===true,projectId,projectName:data.projectName||(project&&project.name)||'',importedAt:r.importedAt||new Date().toISOString()}))}
 window.addEventListener('ajnxt-cloud-ready',e=>{const d=e.detail||{};cloudMode=true;cloudWorkspace=d.workspace;projects=(d.projects||[]).map(p=>({...p}));currentProjectId=d.projectId||(projects.find(p=>p.id==='diamond-restaurant')||projects[0]||{}).id;rows=cloudRowsFromMetrics(d.metrics||{},currentProjectId);save();render();window.ajnxtCloud.loadProjectDrafts(currentProjectId).then(result=>{cloudDrafts=result.drafts||[];cloudDraftProjectId=currentProjectId;render()}).catch(err=>toast(err.message||'Cloud drafts could not be loaded.'));toast('Authenticated backend loaded. External social/ad integrations still need separate authorization.')});
-window.addEventListener('ajnxt-cloud-signed-out',()=>{cloudMode=false;cloudWorkspace=null;cloudDrafts=[];cloudDraftProjectId=null;projects=readStore(STORE.projects,[DEFAULT_PROJECT]);rows=readStore(STORE.rows,[]);currentProjectId=projects[0]?projects[0].id:DEFAULT_PROJECT.id;render()});
+window.addEventListener('ajnxt-cloud-signed-out',()=>{cloudMode=false;cloudWorkspace=null;cloudDrafts=[];cloudDraftProjectId=null;cloudIntegrations=[];cloudIntegrationsProjectId=null;mcpTokens=[];mcpNewToken=null;mcpLoadedWorkspaceId=null;retentionSnapshot=null;retentionLoaded=false;projects=readStore(STORE.projects,[DEFAULT_PROJECT]);rows=readStore(STORE.rows,[]);currentProjectId=projects[0]?projects[0].id:DEFAULT_PROJECT.id;render()});
 window.addEventListener('ajnxt-cloud-error',e=>{if(e.detail&&e.detail.message)toast(e.detail.message)});
 render();
 })();
