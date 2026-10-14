@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Files remain private until a project-authorized upload/download endpoint
+    // and short-lived signed URL workflow is implemented and tested.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
